@@ -437,7 +437,10 @@ export default function Home() {
                       const key = `${item.marketplace}:${item.asin}`;
                       const promotionState = promotionDisplay(item);
                       return <tr key={key} className={selectedKey === key ? "selected" : ""} onClick={() => setSelectedKey(key)}>
-                        <td><span className="market-pill">{item.marketplace}</span><span><strong>{item.asin}</strong><small>{item.brand || "品牌待识别"}</small></span></td>
+                        <td className="watch-product">
+                          <span className="product-thumb"><span>{item.marketplace}</span>{item.listing.imageUrls[0] && <img src={item.listing.imageUrls[0]} alt={`${item.asin} 商品主图`} loading="lazy" onError={(event) => { event.currentTarget.style.display = "none"; }} />}</span>
+                          <span className="watch-product-copy"><span className="watch-product-id"><span className="market-pill">{item.marketplace}</span><strong>{item.asin}</strong></span><small title={item.title}>{item.title || item.brand || "商品标题待补充"}</small></span>
+                        </td>
                         <td><strong>{formatMoney(item.metrics.effectivePrice, item.currency)}</strong><DeltaBadge change={item.changes.effectivePrice} /></td>
                         <td><strong>{formatNumber(item.metrics.monthlyUnits)}</strong><DeltaBadge change={item.changes.monthlyUnits} /><small>{item.metrics.monthlyUnitsGrowthPercent === null ? "估算值" : `增长率 ${item.metrics.monthlyUnitsGrowthPercent > 0 ? "+" : ""}${formatNumber(item.metrics.monthlyUnitsGrowthPercent, 1)}%`}</small></td>
                         <td><span className={`promotion-badge ${promotionState.tone}`}>{promotionState.label}</span><small>{promotionState.detail}</small></td>

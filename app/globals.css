@@ -96,8 +96,13 @@ table { border-collapse: collapse; }
 .watch-table td { height: 54px; padding: 9px 12px; border-bottom: 1px solid #eef0f2; font-size: 10px; cursor: pointer; }
 .watch-table tr:last-child td { border-bottom: 0; }
 .watch-table tbody tr:hover, .watch-table tbody tr.selected { background: #f8fbff; }
-.watch-table td:first-child { display: flex; align-items: center; gap: 8px; }
-.watch-table td:first-child > span:last-child { display: grid; gap: 2px; }
+.watch-table td:first-child { min-width: 260px; }
+.watch-product { display: flex; align-items: center; gap: 9px; }
+.product-thumb { position: relative; width: 42px; height: 42px; flex: 0 0 42px; display: grid; place-items: center; overflow: hidden; border: 1px solid var(--border); border-radius: 8px; background: #f7f8fa; color: #98a2b3; font: 700 8px var(--font-geist-mono), monospace; }
+.product-thumb img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; background: #fff; }
+.watch-product-copy { min-width: 0; display: grid; gap: 3px; }
+.watch-product-id { display: flex; align-items: center; gap: 7px; }
+.watch-product-copy > small { max-width: 205px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .watch-table td strong, .watch-table td small { display: block; }
 .watch-table td > strong { margin-bottom: 3px; font-size: 11px; font-weight: 650; }
 .watch-table td small { color: var(--muted); font-size: 9px; }
@@ -109,7 +114,7 @@ table { border-collapse: collapse; }
 .promotion-badge.mixed { background: #f5f3ff; color: #6941c6; }
 .promotion-badge.history { background: #eef2ff; color: #4338ca; }
 .promotion-badge.quiet { background: #f3f4f6; color: var(--muted); }
-.market-pill { width: 30px; height: 24px; display: grid; place-items: center; border-radius: 5px; background: var(--primary-soft); color: var(--primary-dark); font: 700 8px var(--font-geist-mono), monospace; }
+.market-pill { width: 25px; height: 19px; display: grid; place-items: center; border-radius: 5px; background: var(--primary-soft); color: var(--primary-dark); font: 700 8px var(--font-geist-mono), monospace; }
 .delta { display: inline-flex; min-height: 18px; align-items: center; padding: 2px 5px; border-radius: 4px; background: #f3f4f6; color: var(--muted); font-size: 8px; font-weight: 650; white-space: nowrap; }
 .delta.good { background: var(--green-soft); color: var(--green); }
 .delta.bad { background: var(--red-soft); color: var(--red); }

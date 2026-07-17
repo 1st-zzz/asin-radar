@@ -27,6 +27,8 @@ test("builds the daily monitoring dashboard", async () => {
   assert.match(page, /付费来源占比/);
   assert.match(page, /关键词广告贡献/);
   assert.match(page, /SBV/);
+  assert.match(page, /product-thumb/);
+  assert.match(page, /商品主图/);
   assert.match(page, /fetch\("\/api\/analyze"\)/);
   assert.match(page, /fetch\(`\/api\/history\?\$\{query\}`\)/);
   assert.doesNotMatch(page, /codex-preview|Your site is taking shape|Codex is working/i);
