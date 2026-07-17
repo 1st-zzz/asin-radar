@@ -59,6 +59,36 @@ function healthScore(rating: number | null, freeShare: number | null, dataConfli
   return Math.max(0, Math.min(99, score));
 }
 
+function roundMoney(value: number) {
+  return Math.round(value * 100) / 100;
+}
+
+function effectivePrice(price: number | null, couponValue: unknown) {
+  const coupon = typeof couponValue === "string" ? couponValue.trim() : "";
+  if (price === null) return { coupon: coupon || null, value: null, note: "当前价格缺失" };
+  if (!coupon) return { coupon: null, value: price, note: "当前无优惠券" };
+
+  const percentMatch = coupon.match(/(\d+(?:\.\d+)?)\s*%/);
+  if (percentMatch) {
+    const discount = Number(percentMatch[1]);
+    return { coupon, value: roundMoney(price * (1 - discount / 100)), note: `已扣除 ${coupon} 优惠券` };
+  }
+
+  const amountMatch = coupon.match(/(\d+(?:[.,]\d+)?)/);
+  if (amountMatch && !/%/.test(coupon)) {
+    const discount = Number(amountMatch[1].replace(",", "."));
+    if (Number.isFinite(discount) && discount > 0 && discount < price) {
+      return { coupon, value: roundMoney(price - discount), note: `已扣除 ${coupon} 优惠券` };
+    }
+  }
+
+  return { coupon, value: null, note: `优惠券“${coupon}”无法可靠换算` };
+}
+
+function emptyChange(current: number | null) {
+  return { current, previous: null, absolute: null, percent: null, direction: "new" as const, favorable: null };
+}
+
 export async function analyzeAsin(marketplace: string, asin: string): Promise<AnalysisResult> {
   const { url, headers } = runtimeConfig();
   const client = new Client({ name: "asin-radar", version: "1.0.0" });
@@ -90,6 +120,7 @@ export async function analyzeAsin(marketplace: string, asin: string): Promise<An
     const medianRating = median(competitors.map((item: AnyRecord) => item.rating));
     const detailPrice = typeof detailAsin.price === "number" ? detailAsin.price : null;
     const lookupPrice = typeof seed.price === "number" ? seed.price : null;
+    const pricing = effectivePrice(detailPrice ?? lookupPrice, detailAsin.coupon);
     const priceConflict = detailPrice !== null && lookupPrice !== null && Math.abs(detailPrice - lookupPrice) >= 0.5;
     const relations = Number(relationStat.relations ?? 0);
     const freeRelations = Number(relationStat.freeRelations ?? 0);
@@ -116,13 +147,13 @@ export async function analyzeAsin(marketplace: string, asin: string): Promise<An
         conclusions.push({ severity: Math.abs(change) >= 25 ? "medium" : "info", title: change >= 0 ? "最近完整月销量回升" : "最近完整月销量回落", body: `SellerSprite 月度估算较前月${change >= 0 ? "增加" : "下降"} ${Math.abs(change).toFixed(1)}%。` });
       }
     }
-    if (priceConflict) conclusions.push({ severity: "high", title: "不同接口价格口径冲突", body: `详情价与批量可比价分别为 ${detailPrice} 和 ${lookupPrice}，后续变化必须按同一接口判断。` });
     if (!conclusions.length) conclusions.push({ severity: "info", title: "已建立首份基线", body: "本次没有历史快照，需等下一次同口径采集后才能生成变化告警。" });
 
     const dataNotes = ["月销量和销售额为 SellerSprite 估算值，不是 Amazon 后台实际订单。"];
-    if (priceConflict) dataNotes.unshift("详情接口与批量对比接口的当前价格存在差异，页面保留两种口径。 ");
+    if (priceConflict) dataNotes.unshift(`详情接口与批量对比接口价格分别为 ${detailPrice} 和 ${lookupPrice}；每日折后价固定使用详情接口，批量价仅用于竞品横向对比。`);
 
     return {
+      sourceVersion: 2,
       marketplace,
       asin,
       capturedAt: new Date().toISOString(),
@@ -132,11 +163,14 @@ export async function analyzeAsin(marketplace: string, asin: string): Promise<An
       currency: CURRENCIES[marketplace] ?? "USD",
       healthScore: healthScore(seed.rating ?? null, freeShare, priceConflict),
       metrics: {
-        price: detailPrice ?? lookupPrice,
-        priceNote: priceConflict ? `可比接口 ${lookupPrice}` : "当前抓取价",
-        bsr: seed.bsr ?? detailAsin.bsrRank ?? null,
-        rating: seed.rating ?? detailAsin.rating ?? null,
-        reviews: seed.ratings ?? detailAsin.ratings ?? null,
+        price: pricing.value ?? detailPrice ?? lookupPrice,
+        listPrice: detailPrice ?? lookupPrice,
+        effectivePrice: pricing.value,
+        coupon: pricing.coupon,
+        priceNote: pricing.note,
+        bsr: detailAsin.bsrRank ?? null,
+        rating: detailAsin.rating ?? null,
+        reviews: detailAsin.ratings ?? null,
         monthlyUnits: seed.units ?? null,
         monthlyRevenue: seed.revenue ?? null,
       },
@@ -152,9 +186,18 @@ export async function analyzeAsin(marketplace: string, asin: string): Promise<An
       actions: [
         medianRating !== null && typeof seed.rating === "number" && seed.rating < medianRating ? "优先分析近期 1–3 星评论，找出评分差距。" : "保持当前评分优势并监控新增差评主题。",
         freeShare !== null && freeShare >= 75 ? "守住自然关键词，不因竞品加广告就盲目跟投。" : "检查高流量词的自然排名与广告投入效率。",
-        "7 天后按同一接口复查价格、BSR、销量、评分和重点竞品。",
+        "明天按同一接口复查折后价、BSR、评分和核心流量，形成首个日环比。",
       ],
       dataNotes,
+      history: [],
+      changes: {
+        effectivePrice: emptyChange(pricing.value),
+        rating: emptyChange(detailAsin.rating ?? null),
+        bsr: emptyChange(detailAsin.bsrRank ?? null),
+        naturalKeywords: emptyChange(naturalKeywords),
+        freeShare: emptyChange(freeShare),
+      },
+      comparisonCapturedAt: null,
     };
   } finally {
     await client.close();

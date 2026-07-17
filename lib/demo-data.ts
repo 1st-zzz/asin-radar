@@ -1,6 +1,28 @@
 export type Severity = "high" | "medium" | "info";
 
+export type MetricChange = {
+  current: number | null;
+  previous: number | null;
+  absolute: number | null;
+  percent: number | null;
+  direction: "up" | "down" | "flat" | "new";
+  favorable: boolean | null;
+};
+
+export type HistoryPoint = {
+  capturedAt: string;
+  effectivePrice: number | null;
+  listPrice: number | null;
+  rating: number | null;
+  bsr: number | null;
+  naturalKeywords: number | null;
+  adKeywords: number | null;
+  freeShare: number | null;
+  paidShare: number | null;
+};
+
 export type AnalysisResult = {
+  sourceVersion: number;
   marketplace: string;
   asin: string;
   capturedAt: string;
@@ -11,6 +33,9 @@ export type AnalysisResult = {
   healthScore: number;
   metrics: {
     price: number | null;
+    listPrice: number | null;
+    effectivePrice: number | null;
+    coupon: string | null;
     priceNote: string;
     bsr: number | null;
     rating: number | null;
@@ -36,11 +61,21 @@ export type AnalysisResult = {
   }>;
   actions: string[];
   dataNotes: string[];
+  history: HistoryPoint[];
+  changes: {
+    effectivePrice: MetricChange;
+    rating: MetricChange;
+    bsr: MetricChange;
+    naturalKeywords: MetricChange;
+    freeShare: MetricChange;
+  };
+  comparisonCapturedAt: string | null;
 };
 
 export type MonitorResponse = { results: AnalysisResult[]; persisted: boolean };
 
 export const demoResult: AnalysisResult = {
+  sourceVersion: 2,
   marketplace: "DE",
   asin: "B0DPDKLHYM",
   capturedAt: "2026-07-16T22:31:59+08:00",
@@ -51,8 +86,11 @@ export const demoResult: AnalysisResult = {
   healthScore: 78,
   metrics: {
     price: 26.99,
-    priceNote: "另一路径显示 €22.68",
-    bsr: 13875,
+    listPrice: 26.99,
+    effectivePrice: 26.99,
+    coupon: null,
+    priceNote: "当前无优惠券",
+    bsr: 229700,
     rating: 4.0,
     reviews: 347,
     monthlyUnits: 682,
@@ -86,4 +124,13 @@ export const demoResult: AnalysisResult = {
     "卖家精灵详情、批量对比和 Keepa 路径对当前价格及 BSR 的返回存在差异。",
     "月销量和销售额为卖家精灵估算值，不是 Amazon 后台实际订单。",
   ],
+  history: [],
+  changes: {
+    effectivePrice: { current: 26.99, previous: null, absolute: null, percent: null, direction: "new", favorable: null },
+    rating: { current: 4, previous: null, absolute: null, percent: null, direction: "new", favorable: null },
+    bsr: { current: 229700, previous: null, absolute: null, percent: null, direction: "new", favorable: null },
+    naturalKeywords: { current: 130, previous: null, absolute: null, percent: null, direction: "new", favorable: null },
+    freeShare: { current: 93.05, previous: null, absolute: null, percent: null, direction: "new", favorable: null },
+  },
+  comparisonCapturedAt: null,
 };
