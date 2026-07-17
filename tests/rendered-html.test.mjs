@@ -8,11 +8,13 @@ test("builds the daily monitoring dashboard", async () => {
     readFile(new URL("../app/layout.tsx", import.meta.url), "utf8"),
     access(new URL("../dist/server/index.js", import.meta.url)),
   ]);
-  assert.match(layout, /ASIN Radar｜多站点竞品监控/);
-  assert.match(page, /每日变化，一页看清/);
-  assert.match(page, /抓取今日数据/);
+  assert.match(layout, /ASIN Radar｜竞品监控与历史查询/);
+  assert.match(page, /把竞品变化，变成今天的动作/);
+  assert.match(page, /ASIN 历史查询/);
+  assert.match(page, /查询历史/);
   assert.match(page, /折后价/);
-  assert.match(page, /变化趋势/);
+  assert.match(page, /平台历史轨迹/);
   assert.match(page, /fetch\("\/api\/analyze"\)/);
+  assert.match(page, /fetch\(`\/api\/history\?\$\{query\}`\)/);
   assert.doesNotMatch(page, /codex-preview|Your site is taking shape|Codex is working/i);
 });

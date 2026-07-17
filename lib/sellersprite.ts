@@ -1,7 +1,7 @@
 import { env } from "cloudflare:workers";
 import { Client } from "@modelcontextprotocol/sdk/client";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
-import type { AnalysisResult, Severity } from "./demo-data";
+import type { AnalysisResult, PlatformHistoryPoint, PlatformHistoryResult, Severity } from "./demo-data";
 
 const CURRENCIES: Record<string, string> = { US: "USD", JP: "JPY", UK: "GBP", DE: "EUR", FR: "EUR", IT: "EUR", ES: "EUR", CA: "CAD", IN: "INR", MX: "MXN", BR: "BRL", AU: "AUD", AE: "AED" };
 const AMAZON_DOMAINS: Record<string, string> = { US: "amazon.com", JP: "amazon.co.jp", UK: "amazon.co.uk", DE: "amazon.de", FR: "amazon.fr", IT: "amazon.it", ES: "amazon.es", CA: "amazon.ca", IN: "amazon.in", MX: "amazon.com.mx", BR: "amazon.com.br", AU: "amazon.com.au", AE: "amazon.ae" };
@@ -87,6 +87,86 @@ function effectivePrice(price: number | null, couponValue: unknown) {
 
 function emptyChange(current: number | null) {
   return { current, previous: null, absolute: null, percent: null, direction: "new" as const, favorable: null };
+}
+
+type TrendValue = { timePoint?: number; value?: number };
+
+function mergeHistorySeries(data: AnyRecord) {
+  const byDay = new Map<string, PlatformHistoryPoint & { timestamp: number; price?: number | null; dealPrice?: number | null }>();
+  const apply = (series: TrendValue[] | undefined, field: "price" | "dealPrice" | "listPrice" | "buyBoxPrice" | "bsr" | "rating" | "reviews") => {
+    for (const item of series ?? []) {
+      if (typeof item.timePoint !== "number" || typeof item.value !== "number" || !Number.isFinite(item.value)) continue;
+      const day = new Date(item.timePoint).toISOString().slice(0, 10);
+      const current = byDay.get(day) ?? {
+        timestamp: item.timePoint,
+        capturedAt: new Date(item.timePoint).toISOString(),
+        marketPrice: null,
+        listPrice: null,
+        buyBoxPrice: null,
+        bsr: null,
+        rating: null,
+        reviews: null,
+      };
+      if (item.timePoint >= current.timestamp) {
+        current.timestamp = item.timePoint;
+        current.capturedAt = new Date(item.timePoint).toISOString();
+      }
+      current[field] = item.value;
+      byDay.set(day, current);
+    }
+  };
+
+  apply(data.price, "price");
+  apply(data.dealPrice, "dealPrice");
+  apply(data.priceList, "listPrice");
+  apply(data.buyBox, "buyBoxPrice");
+  apply(data.bsr, "bsr");
+  apply(data.rating, "rating");
+  apply(data.reviews, "reviews");
+
+  return [...byDay.values()]
+    .sort((a, b) => a.timestamp - b.timestamp)
+    .map((point) => ({
+      capturedAt: point.capturedAt,
+      marketPrice: point.dealPrice ?? point.buyBoxPrice ?? point.price ?? null,
+      listPrice: point.listPrice,
+      buyBoxPrice: point.buyBoxPrice,
+      bsr: point.bsr,
+      rating: point.rating,
+      reviews: point.reviews,
+    }));
+}
+
+export async function queryAsinHistory(marketplace: string, asin: string, rangeDays: number): Promise<PlatformHistoryResult> {
+  const { url, headers } = runtimeConfig();
+  const client = new Client({ name: "asin-radar-history", version: "1.0.0" });
+  const transport = new StreamableHTTPClientTransport(new URL(url), { requestInit: { headers } });
+  await client.connect(transport);
+  const endTimestamp = Date.now();
+  const startTimestamp = endTimestamp - rangeDays * 86400000;
+
+  try {
+    const result = await client.callTool({
+      name: "keepa_info",
+      arguments: { asin, marketplace, dailyLatest: true, startTimestamp, endTimestamp },
+    });
+    const data = (toolData(result) as AnyRecord) ?? {};
+    return {
+      marketplace,
+      asin,
+      title: data.title ?? asin,
+      brand: data.brand ?? "",
+      imageUrl: data.imageUrl ?? null,
+      amazonUrl: data.asinUrl ?? `https://www.${AMAZON_DOMAINS[marketplace]}/dp/${asin}`,
+      currency: CURRENCIES[marketplace] ?? "USD",
+      rangeDays,
+      points: mergeHistorySeries(data),
+      source: "SellerSprite Keepa",
+      sourceNote: "平台历史价格使用 Keepa 售价/Buy Box 轨迹，不等同于本产品每日按优惠券换算的折后价；历史流量仅在加入监控后由每日快照累积。",
+    };
+  } finally {
+    await client.close();
+  }
 }
 
 export async function analyzeAsin(marketplace: string, asin: string): Promise<AnalysisResult> {

@@ -11,8 +11,8 @@ export async function generateMetadata(): Promise<Metadata> {
   const host = requestHeaders.get("host") ?? "localhost:3000";
   const protocol = requestHeaders.get("x-forwarded-proto") ?? (host.startsWith("localhost") ? "http" : "https");
   const imageUrl = `${protocol}://${host}/og.png`;
-  const title = "ASIN Radar｜多站点竞品监控";
-  const description = "输入各国 Amazon ASIN，自动分析竞品、价格、销量、排名和流量结构。";
+  const title = "ASIN Radar｜竞品监控与历史查询";
+  const description = "查询 Amazon ASIN 历史价格、排名、评分，并持续监控折后价与核心流量变化。";
   return {
     title,
     description,

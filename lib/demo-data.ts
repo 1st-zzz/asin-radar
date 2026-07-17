@@ -74,6 +74,35 @@ export type AnalysisResult = {
 
 export type MonitorResponse = { results: AnalysisResult[]; persisted: boolean };
 
+export type PlatformHistoryPoint = {
+  capturedAt: string;
+  marketPrice: number | null;
+  listPrice: number | null;
+  buyBoxPrice: number | null;
+  bsr: number | null;
+  rating: number | null;
+  reviews: number | null;
+};
+
+export type PlatformHistoryResult = {
+  marketplace: string;
+  asin: string;
+  title: string;
+  brand: string;
+  imageUrl: string | null;
+  amazonUrl: string;
+  currency: string;
+  rangeDays: number;
+  points: PlatformHistoryPoint[];
+  source: "SellerSprite Keepa";
+  sourceNote: string;
+};
+
+export type HistoryQueryResponse = {
+  platform: PlatformHistoryResult;
+  retained: AnalysisResult | null;
+};
+
 export const demoResult: AnalysisResult = {
   sourceVersion: 2,
   marketplace: "DE",

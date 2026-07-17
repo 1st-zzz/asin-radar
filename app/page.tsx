@@ -1,17 +1,32 @@
 "use client";
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
-import type { AnalysisResult, HistoryPoint, MetricChange, MonitorResponse } from "../lib/demo-data";
+import type {
+  AnalysisResult,
+  HistoryPoint,
+  HistoryQueryResponse,
+  MetricChange,
+  MonitorResponse,
+  PlatformHistoryPoint,
+} from "../lib/demo-data";
 
 const MARKETPLACES = ["US", "JP", "UK", "DE", "FR", "IT", "ES", "CA", "IN", "MX", "BR", "AU", "AE"];
-type TrendMetric = "effectivePrice" | "rating" | "bsr" | "naturalKeywords" | "freeShare";
+type ViewMode = "monitor" | "history";
+type SnapshotMetric = "effectivePrice" | "rating" | "bsr" | "naturalKeywords" | "freeShare";
+type PlatformMetric = "marketPrice" | "bsr" | "rating" | "reviews";
 
-const TREND_METRICS: Array<{ key: TrendMetric; label: string }> = [
+const SNAPSHOT_METRICS: Array<{ key: SnapshotMetric; label: string }> = [
   { key: "effectivePrice", label: "折后价" },
   { key: "rating", label: "评分" },
   { key: "bsr", label: "BSR" },
   { key: "naturalKeywords", label: "自然词" },
   { key: "freeShare", label: "免费流量" },
+];
+const PLATFORM_METRICS: Array<{ key: PlatformMetric; label: string }> = [
+  { key: "marketPrice", label: "平台售价" },
+  { key: "bsr", label: "BSR" },
+  { key: "rating", label: "评分" },
+  { key: "reviews", label: "评论数" },
 ];
 
 function formatNumber(value: number | null, digits = 0) {
@@ -30,32 +45,24 @@ function formatMoney(value: number | null, currency: string) {
 
 function formatDate(value: string, withTime = false) {
   return new Date(value).toLocaleString("zh-CN", withTime
-    ? { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" }
+    ? { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" }
     : { month: "2-digit", day: "2-digit" });
 }
 
 function parseTargets(input: string, defaultMarketplace: string) {
-  const targets = input
-    .split(/[\n,;]+/)
-    .map((line) => line.trim().toUpperCase())
-    .filter(Boolean)
-    .map((line) => {
-      const parts = line.split(/\s+/);
-      return parts.length > 1 && MARKETPLACES.includes(parts[0])
-        ? { marketplace: parts[0], asin: parts[1] }
-        : { marketplace: defaultMarketplace, asin: parts[0] };
-    });
+  const targets = input.split(/[\n,;]+/).map((line) => line.trim().toUpperCase()).filter(Boolean).map((line) => {
+    const parts = line.split(/\s+/);
+    return parts.length > 1 && MARKETPLACES.includes(parts[0])
+      ? { marketplace: parts[0], asin: parts[1] }
+      : { marketplace: defaultMarketplace, asin: parts[0] };
+  });
   return [...new Map(targets.map((target) => [`${target.marketplace}:${target.asin}`, target])).values()];
 }
 
-function severityLabel(severity: string) {
-  return severity === "high" ? "重点" : severity === "medium" ? "关注" : "信息";
-}
-
 function deltaText(change: MetricChange, mode: "percent" | "absolute" = "percent", suffix = "") {
-  if (change.previous === null) return "基线";
+  if (change.previous === null) return "新基线";
   const value = mode === "percent" ? change.percent : change.absolute;
-  if (value === null || value === 0) return "无变化";
+  if (value === null || value === 0) return "持平";
   return `${value > 0 ? "↑" : "↓"} ${Math.abs(value).toFixed(mode === "percent" ? 1 : 2)}${mode === "percent" ? "%" : suffix}`;
 }
 
@@ -64,36 +71,23 @@ function DeltaBadge({ change, mode = "percent", suffix = "" }: { change: MetricC
   return <span className={`delta ${tone}`}>{deltaText(change, mode, suffix)}</span>;
 }
 
-function pointValue(point: HistoryPoint, metric: TrendMetric) {
-  return point[metric];
-}
-
-function trendValue(value: number | null, metric: TrendMetric, currency: string) {
-  if (metric === "effectivePrice") return formatMoney(value, currency);
-  if (metric === "rating") return formatNumber(value, 1);
-  if (metric === "freeShare") return `${formatNumber(value, 1)}%`;
-  return formatNumber(value);
-}
-
-function TrendChart({ result, metric }: { result: AnalysisResult; metric: TrendMetric }) {
-  const points = result.history.filter((point) => pointValue(point, metric) !== null);
-  const values = points.map((point) => pointValue(point, metric) as number);
-  const min = values.length ? Math.min(...values) : 0;
-  const max = values.length ? Math.max(...values) : 0;
+function Bars({ points, values, labels, formatter }: { points: string[]; values: Array<number | null>; labels: string[]; formatter: (value: number | null) => string }) {
+  const available = values.filter((value): value is number => value !== null);
+  const min = available.length ? Math.min(...available) : 0;
+  const max = available.length ? Math.max(...available) : 0;
   const range = max - min;
-
-  if (!points.length) return <div className="trend-empty">该指标暂时没有可用快照。</div>;
+  if (!available.length) return <div className="chart-empty">该指标在所选时间范围内暂无数据。</div>;
 
   return (
-    <div className="trend-chart" aria-label={`${TREND_METRICS.find((item) => item.key === metric)?.label}趋势`}>
-      {points.map((point) => {
-        const value = pointValue(point, metric) as number;
-        const height = range === 0 ? 54 : 22 + ((value - min) / range) * 62;
+    <div className="bar-chart" aria-label={labels.join(" ")}>
+      {points.map((point, index) => {
+        const value = values[index];
+        const height = value === null ? 4 : range === 0 ? 52 : 20 + ((value - min) / range) * 66;
         return (
-          <div className="trend-column" key={`${point.capturedAt}:${metric}`}>
-            <span className="trend-value">{trendValue(value, metric, result.currency)}</span>
-            <span className="trend-bar-wrap"><span className="trend-bar" style={{ height: `${height}px` }} /></span>
-            <time>{formatDate(point.capturedAt)}</time>
+          <div className="bar-column" key={`${point}:${index}`}>
+            <span className="bar-value">{formatter(value)}</span>
+            <span className="bar-track"><span className={value === null ? "bar missing" : "bar"} style={{ height: `${height}px` }} /></span>
+            <time>{labels[index]}</time>
           </div>
         );
       })}
@@ -101,171 +95,222 @@ function TrendChart({ result, metric }: { result: AnalysisResult; metric: TrendM
   );
 }
 
+function SnapshotChart({ result, metric }: { result: AnalysisResult; metric: SnapshotMetric }) {
+  const history = result.history.slice(-30);
+  const formatter = (value: number | null) => metric === "effectivePrice" ? formatMoney(value, result.currency) : metric === "rating" || metric === "freeShare" ? `${formatNumber(value, 1)}${metric === "freeShare" ? "%" : ""}` : formatNumber(value);
+  return <Bars points={history.map((point) => point.capturedAt)} labels={history.map((point) => formatDate(point.capturedAt))} values={history.map((point: HistoryPoint) => point[metric])} formatter={formatter} />;
+}
+
+function PlatformChart({ response, metric }: { response: HistoryQueryResponse; metric: PlatformMetric }) {
+  const source = response.platform.points.filter((point) => point[metric] !== null);
+  const step = Math.max(1, Math.ceil(source.length / 24));
+  const points = source.filter((_, index) => index % step === 0 || index === source.length - 1);
+  const formatter = (value: number | null) => metric === "marketPrice" ? formatMoney(value, response.platform.currency) : metric === "rating" ? formatNumber(value, 1) : formatNumber(value);
+  return <Bars points={points.map((point) => point.capturedAt)} labels={points.map((point) => formatDate(point.capturedAt))} values={points.map((point: PlatformHistoryPoint) => point[metric])} formatter={formatter} />;
+}
+
+function SnapshotDetail({ result }: { result: AnalysisResult }) {
+  const [metric, setMetric] = useState<SnapshotMetric>("effectivePrice");
+  return (
+    <article className="product-card detail-card">
+      <div className="detail-heading">
+        <div><div className="product-code"><span>{result.marketplace}</span>{result.asin}</div><h2>{result.title}</h2><p>{result.brand || "品牌待识别"} · 最近抓取 {formatDate(result.capturedAt, true)}</p></div>
+        <a href={result.amazonUrl} target="_blank" rel="noreferrer" className="ghost-button">Amazon 商品页 ↗</a>
+      </div>
+      <div className="kpi-strip">
+        <div><span>折后价</span><strong>{formatMoney(result.metrics.effectivePrice, result.currency)}</strong><DeltaBadge change={result.changes.effectivePrice} /><small>{result.metrics.priceNote}</small></div>
+        <div><span>评分</span><strong>{formatNumber(result.metrics.rating, 1)}</strong><DeltaBadge change={result.changes.rating} mode="absolute" /><small>{formatNumber(result.metrics.reviews)} 个评分</small></div>
+        <div><span>主类 BSR</span><strong>{formatNumber(result.metrics.bsr)}</strong><DeltaBadge change={result.changes.bsr} /><small>数字越低越好</small></div>
+        <div><span>自然关键词</span><strong>{formatNumber(result.traffic.naturalKeywords)}</strong><DeltaBadge change={result.changes.naturalKeywords} /><small>广告词 {formatNumber(result.traffic.adKeywords)}</small></div>
+        <div><span>免费流量</span><strong>{formatNumber(result.traffic.freeShare, 1)}%</strong><DeltaBadge change={result.changes.freeShare} mode="absolute" suffix="pp" /><small>付费 {formatNumber(result.traffic.paidShare, 1)}%</small></div>
+      </div>
+      <div className="detail-body">
+        <section className="chart-panel">
+          <div className="panel-heading"><div><span className="section-label">留存快照</span><h3>每日变化趋势</h3></div><span>{result.history.length} 天记录</span></div>
+          <div className="metric-tabs">{SNAPSHOT_METRICS.map((item) => <button type="button" key={item.key} className={metric === item.key ? "active" : ""} onClick={() => setMetric(item.key)}>{item.label}</button>)}</div>
+          <SnapshotChart result={result} metric={metric} />
+          {result.history.length === 1 && <p className="inline-note">这是首日基线。下一个自然日同步后会自动生成日环比。</p>}
+        </section>
+        <section className="insight-panel">
+          <div className="panel-heading"><div><span className="section-label">监控判断</span><h3>今天需要关注</h3></div></div>
+          <div className="insight-list">{result.conclusions.slice(0, 5).map((item, index) => <div className={`insight ${item.severity}`} key={`${item.title}:${index}`}><span>{item.severity === "high" ? "重点" : item.severity === "medium" ? "关注" : "信息"}</span><div><strong>{item.title}</strong><p>{item.body}</p></div></div>)}</div>
+        </section>
+      </div>
+    </article>
+  );
+}
+
 export default function Home() {
+  const [view, setView] = useState<ViewMode>("monitor");
   const [defaultMarketplace, setDefaultMarketplace] = useState("DE");
   const [input, setInput] = useState("DE B0DPDKLHYM");
   const [results, setResults] = useState<AnalysisResult[]>([]);
   const [selectedKey, setSelectedKey] = useState("");
-  const [trendMetric, setTrendMetric] = useState<TrendMetric>("effectivePrice");
   const [isLoading, setIsLoading] = useState(false);
-  const [message, setMessage] = useState("正在读取历史记录…");
+  const [message, setMessage] = useState("正在读取监控记录…");
+  const [historyMarketplace, setHistoryMarketplace] = useState("DE");
+  const [historyAsin, setHistoryAsin] = useState("B0DPDKLHYM");
+  const [historyDays, setHistoryDays] = useState("90");
+  const [historyMetric, setHistoryMetric] = useState<PlatformMetric>("marketPrice");
+  const [historyResult, setHistoryResult] = useState<HistoryQueryResponse | null>(null);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyMessage, setHistoryMessage] = useState("输入 ASIN 即可查询平台历史和已留存快照");
 
   useEffect(() => {
     let active = true;
-    fetch("/api/analyze")
-      .then(async (response) => ({ ok: response.ok, payload: (await response.json()) as MonitorResponse }))
-      .then(({ ok, payload }) => {
-        if (!active || !ok) return;
-        setResults(payload.results);
-        if (payload.results[0]) setSelectedKey(`${payload.results[0].marketplace}:${payload.results[0].asin}`);
-        setMessage(payload.results.length ? `已读取 ${payload.results.length} 个监控对象` : "暂无历史记录，添加 ASIN 建立今日基线");
-      })
-      .catch(() => active && setMessage("历史记录暂时无法读取，可直接重新抓取"));
+    fetch("/api/analyze").then(async (response) => ({ ok: response.ok, payload: (await response.json()) as MonitorResponse })).then(({ ok, payload }) => {
+      if (!active || !ok) return;
+      setResults(payload.results);
+      if (payload.results[0]) setSelectedKey(`${payload.results[0].marketplace}:${payload.results[0].asin}`);
+      setMessage(payload.results.length ? `已载入 ${payload.results.length} 个监控对象` : "暂无监控记录，先建立今日基线");
+    }).catch(() => active && setMessage("历史记录暂时无法读取，可直接同步今日数据"));
     return () => { active = false; };
   }, []);
 
-  const selected = useMemo(
-    () => results.find((item) => `${item.marketplace}:${item.asin}` === selectedKey) ?? results[0],
-    [results, selectedKey]
-  );
+  const selected = useMemo(() => results.find((item) => `${item.marketplace}:${item.asin}` === selectedKey) ?? results[0], [results, selectedKey]);
   const changedCount = results.filter((item) => Object.values(item.changes).some((change) => change.previous !== null && change.direction !== "flat")).length;
   const latestCapture = results.reduce<string | null>((latest, item) => !latest || Date.parse(item.capturedAt) > Date.parse(latest) ? item.capturedAt : latest, null);
 
-  async function handleSubmit(event: FormEvent) {
+  async function handleSync(event: FormEvent) {
     event.preventDefault();
     const targets = parseTargets(input, defaultMarketplace);
     const invalid = targets.find((target) => !MARKETPLACES.includes(target.marketplace) || !/^[A-Z0-9]{10}$/.test(target.asin));
-    if (!targets.length || invalid) {
-      setMessage("请按“站点 ASIN”输入，例如：DE B0DPDKLHYM");
-      return;
-    }
-    if (targets.length > 20) {
-      setMessage("单次最多抓取 20 个 ASIN，请拆成多批");
-      return;
-    }
-
+    if (!targets.length || invalid) return setMessage("请按“站点 ASIN”输入，例如 DE B0DPDKLHYM");
+    if (targets.length > 20) return setMessage("单次最多同步 20 个 ASIN");
     setIsLoading(true);
-    setMessage(`正在抓取 ${targets.length} 个 ASIN 的今日快照…`);
+    setMessage(`正在同步 ${targets.length} 个 ASIN 的今日快照…`);
     try {
-      const response = await fetch("/api/analyze", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ targets }),
-      });
+      const response = await fetch("/api/analyze", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ targets }) });
       const payload = (await response.json()) as MonitorResponse & { error?: string; failed?: number };
-      if (!response.ok) throw new Error(payload.error || "抓取服务暂时不可用");
+      if (!response.ok) throw new Error(payload.error || "同步服务暂时不可用");
       setResults((current) => {
         const updated = new Map(current.map((item) => [`${item.marketplace}:${item.asin}`, item]));
         for (const item of payload.results) updated.set(`${item.marketplace}:${item.asin}`, item);
         return [...updated.values()].sort((a, b) => Date.parse(b.capturedAt) - Date.parse(a.capturedAt));
       });
       if (payload.results[0]) setSelectedKey(`${payload.results[0].marketplace}:${payload.results[0].asin}`);
-      setMessage(payload.persisted
-        ? `今日快照已保存${payload.failed ? `，${payload.failed} 个 ASIN 抓取失败` : ""}`
-        : "抓取完成，但历史库暂时不可写");
+      setMessage(payload.persisted ? `今日快照已保存${payload.failed ? `，${payload.failed} 个失败` : ""}` : "同步完成，但历史库暂时不可写");
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "抓取失败，请稍后重试");
+      setMessage(error instanceof Error ? error.message : "同步失败，请稍后重试");
     } finally {
       setIsLoading(false);
     }
   }
 
+  async function handleHistoryQuery(event: FormEvent) {
+    event.preventDefault();
+    const asin = historyAsin.trim().toUpperCase();
+    if (!/^[A-Z0-9]{10}$/.test(asin)) return setHistoryMessage("请输入有效的 10 位 ASIN");
+    setHistoryAsin(asin);
+    setHistoryLoading(true);
+    setHistoryMessage(`正在查询 ${historyMarketplace} ${asin} 的历史轨迹…`);
+    try {
+      const query = new URLSearchParams({ marketplace: historyMarketplace, asin, days: historyDays });
+      const response = await fetch(`/api/history?${query}`);
+      const payload = (await response.json()) as HistoryQueryResponse & { error?: string };
+      if (!response.ok) throw new Error(payload.error || "历史查询暂时不可用");
+      setHistoryResult(payload);
+      setHistoryMessage(`已返回 ${payload.platform.points.length} 个平台历史数据点${payload.retained ? `，以及 ${payload.retained.history.length} 天本产品快照` : ""}`);
+    } catch (error) {
+      setHistoryResult(null);
+      setHistoryMessage(error instanceof Error ? error.message : "历史查询失败");
+    } finally {
+      setHistoryLoading(false);
+    }
+  }
+
+  function openHistory(item: AnalysisResult) {
+    setHistoryMarketplace(item.marketplace);
+    setHistoryAsin(item.asin);
+    setHistoryResult(null);
+    setView("history");
+    setHistoryMessage("已带入 ASIN，点击查询历史数据");
+  }
+
+  const latestPlatformPoint = historyResult?.platform.points.at(-1) ?? null;
+  const firstPlatformPoint = historyResult?.platform.points[0] ?? null;
+  const latestPlatformPrice = latestPlatformPoint?.marketPrice ?? null;
+  const firstPlatformPrice = firstPlatformPoint?.marketPrice ?? null;
+  const platformPriceChange = latestPlatformPrice !== null && firstPlatformPrice !== null && firstPlatformPrice !== 0
+    ? ((latestPlatformPrice - firstPlatformPrice) / firstPlatformPrice) * 100
+    : null;
+
   return (
-    <main className="app-shell">
-      <header className="app-header">
-        <a className="brand" href="#top" aria-label="ASIN Radar 首页"><span className="brand-mark">AR</span><span>ASIN Radar</span></a>
-        <div className="header-state"><span className="status-dot" />每日快照已启用</div>
-      </header>
+    <div className="product-layout">
+      <aside className="sidebar">
+        <a className="product-brand" href="#top"><span className="brand-glyph">A</span><span><strong>ASIN Radar</strong><small>Competitive intelligence</small></span></a>
+        <nav>
+          <button type="button" className={view === "monitor" ? "active" : ""} onClick={() => setView("monitor")}><span className="nav-icon">01</span><span>今日监控<small>同步与变化</small></span></button>
+          <button type="button" className={view === "history" ? "active" : ""} onClick={() => setView("history")}><span className="nav-icon">02</span><span>历史查询<small>过往趋势</small></span></button>
+        </nav>
+        <div className="sidebar-foot"><span className="live-dot" />SellerSprite 数据已连接<small>历史快照安全留存</small></div>
+      </aside>
 
-      <section className="control-panel" id="top">
-        <div className="control-copy">
-          <p className="eyebrow">Amazon 竞品监控</p>
-          <h1>每日变化，一页看清</h1>
-          <p>抓取折后价、评分、BSR 与核心流量；第二天起自动生成趋势和环比。</p>
-        </div>
-        <form className="monitor-form" onSubmit={handleSubmit}>
-          <label htmlFor="targets">添加或更新监控对象 <span>每行一个，最多 20 个</span></label>
-          <div className="form-main">
-            <select aria-label="默认站点" value={defaultMarketplace} onChange={(event) => setDefaultMarketplace(event.target.value)}>
-              {MARKETPLACES.map((marketplace) => <option key={marketplace}>{marketplace}</option>)}
-            </select>
-            <textarea id="targets" data-testid="target-input" value={input} onChange={(event) => setInput(event.target.value)} placeholder={"DE B0DPDKLHYM\nUS B0XXXXXXXX"} rows={2} />
-            <button type="submit" disabled={isLoading} data-testid="analyze-button">{isLoading ? "抓取中…" : "抓取今日数据"}</button>
-          </div>
-          <p className="form-message" role="status">{message}</p>
-        </form>
-      </section>
+      <main className="main-canvas" id="top">
+        <header className="product-topbar">
+          <div><p>{view === "monitor" ? "Monitoring workspace" : "Historical intelligence"}</p><h1>{view === "monitor" ? "今日监控" : "ASIN 历史查询"}</h1></div>
+          <div className="topbar-meta"><span>{latestCapture ? `数据更新 ${formatDate(latestCapture, true)}` : "等待首次同步"}</span><span className="account-badge">DE</span></div>
+        </header>
 
-      <section className="monitor-section" aria-label="监控列表">
-        <div className="summary-row">
-          <div><span>监控对象</span><strong>{results.length}</strong></div>
-          <div><span>今日有变化</span><strong>{changedCount}</strong></div>
-          <div><span>覆盖站点</span><strong>{new Set(results.map((item) => item.marketplace)).size}</strong></div>
-          <div className="latest-summary"><span>最近抓取</span><strong>{latestCapture ? formatDate(latestCapture, true) : "—"}</strong></div>
-        </div>
-
-        <div className="monitor-table-wrap">
-          <table className="monitor-table">
-            <thead><tr><th>商品</th><th>折后价</th><th>评分</th><th>BSR</th><th>核心流量</th><th>最近抓取</th><th /></tr></thead>
-            <tbody>
-              {results.map((item) => {
-                const key = `${item.marketplace}:${item.asin}`;
-                return (
-                  <tr key={key} className={selectedKey === key ? "selected" : ""} onClick={() => setSelectedKey(key)}>
-                    <td><span className="market-tag">{item.marketplace}</span><span className="product-id"><strong>{item.asin}</strong><small>{item.brand || "品牌待识别"}</small></span></td>
-                    <td><strong>{formatMoney(item.metrics.effectivePrice, item.currency)}</strong><DeltaBadge change={item.changes.effectivePrice} /></td>
-                    <td><strong>{formatNumber(item.metrics.rating, 1)}</strong><DeltaBadge change={item.changes.rating} mode="absolute" /></td>
-                    <td><strong>{formatNumber(item.metrics.bsr)}</strong><DeltaBadge change={item.changes.bsr} /></td>
-                    <td><strong>{formatNumber(item.traffic.naturalKeywords)} 自然词</strong><small>免费 {formatNumber(item.traffic.freeShare, 1)}%</small></td>
-                    <td><strong>{formatDate(item.capturedAt, true)}</strong><small>{item.history.length} 天记录</small></td>
-                    <td><button type="button" className="row-button" aria-label={`查看 ${item.asin}`}>→</button></td>
-                  </tr>
-                );
-              })}
-              {!results.length && <tr><td className="empty-row" colSpan={7}>还没有监控记录。上方输入 ASIN，建立第一天基线。</td></tr>}
-            </tbody>
-          </table>
-        </div>
-      </section>
-
-      {selected && (
-        <section className="detail-card" aria-label={`${selected.asin} 趋势详情`}>
-          <div className="detail-header">
-            <div><div className="analysis-kicker"><span>{selected.marketplace}</span>{selected.asin}</div><h2>{selected.title}</h2><p>{selected.brand} · {selected.comparisonCapturedAt ? `对比 ${formatDate(selected.comparisonCapturedAt)}` : "今日为同口径首日基线"}</p></div>
-            <a href={selected.amazonUrl} target="_blank" rel="noreferrer" className="amazon-link">查看 Amazon ↗</a>
-          </div>
-
-          <div className="metric-grid">
-            <div><span>折后价</span><strong>{formatMoney(selected.metrics.effectivePrice, selected.currency)}</strong><DeltaBadge change={selected.changes.effectivePrice} /><small>{selected.metrics.priceNote}{selected.metrics.listPrice !== selected.metrics.effectivePrice ? ` · 原价 ${formatMoney(selected.metrics.listPrice, selected.currency)}` : ""}</small></div>
-            <div><span>评分</span><strong>{formatNumber(selected.metrics.rating, 1)}</strong><DeltaBadge change={selected.changes.rating} mode="absolute" /><small>{formatNumber(selected.metrics.reviews)} 个评分</small></div>
-            <div><span>主类 BSR</span><strong>{formatNumber(selected.metrics.bsr)}</strong><DeltaBadge change={selected.changes.bsr} /><small>数字越低越好</small></div>
-            <div><span>自然关键词</span><strong>{formatNumber(selected.traffic.naturalKeywords)}</strong><DeltaBadge change={selected.changes.naturalKeywords} /><small>广告词 {formatNumber(selected.traffic.adKeywords)}</small></div>
-            <div><span>免费流量</span><strong>{formatNumber(selected.traffic.freeShare, 1)}%</strong><DeltaBadge change={selected.changes.freeShare} mode="absolute" suffix="pp" /><small>付费 {formatNumber(selected.traffic.paidShare, 1)}%</small></div>
-          </div>
-
-          <div className="trend-section">
-            <div className="section-title"><div><p className="eyebrow">每日历史</p><h3>变化趋势</h3></div><span>{selected.history.length} 天快照</span></div>
-            <div className="trend-tabs" role="tablist">
-              {TREND_METRICS.map((item) => <button type="button" role="tab" aria-selected={trendMetric === item.key} className={trendMetric === item.key ? "active" : ""} key={item.key} onClick={() => setTrendMetric(item.key)}>{item.label}</button>)}
-            </div>
-            <TrendChart result={selected} metric={trendMetric} />
-            {selected.history.length === 1 && <p className="baseline-note">今天是同口径基线；明天再次抓取后，这里会出现第二个数据点和日环比。</p>}
-          </div>
-
-          <div className="detail-columns">
-            <section className="insight-section">
-              <div className="section-title"><div><p className="eyebrow">变化判断</p><h3>核心结论</h3></div></div>
-              <div className="insight-list">{selected.conclusions.slice(0, 6).map((conclusion, index) => <div className={`insight ${conclusion.severity}`} key={`${conclusion.title}:${index}`}><span>{severityLabel(conclusion.severity)}</span><div><strong>{conclusion.title}</strong><p>{conclusion.body}</p></div></div>)}</div>
+        {view === "monitor" ? (
+          <div className="page-content">
+            <section className="welcome-row">
+              <div><span className="section-label">每日经营雷达</span><h2>把竞品变化，变成今天的动作。</h2><p>统一跟踪折后价、评分、排名与核心流量。相同口径、逐日留存、异常优先。</p></div>
+              <form className="sync-card" onSubmit={handleSync}>
+                <div className="sync-head"><strong>同步今日快照</strong><span>最多 20 个 ASIN</span></div>
+                <div className="sync-fields"><select aria-label="默认站点" value={defaultMarketplace} onChange={(event) => setDefaultMarketplace(event.target.value)}>{MARKETPLACES.map((item) => <option key={item}>{item}</option>)}</select><textarea value={input} onChange={(event) => setInput(event.target.value)} rows={2} aria-label="ASIN 列表" /><button type="submit" disabled={isLoading}>{isLoading ? "同步中…" : "开始同步"}</button></div>
+                <p role="status">{message}</p>
+              </form>
             </section>
-            <section className="history-section">
-              <div className="section-title"><div><p className="eyebrow">精确数值</p><h3>历史明细</h3></div></div>
-              <div className="history-table-wrap"><table className="history-table"><thead><tr><th>日期</th><th>折后价</th><th>评分</th><th>BSR</th><th>自然词</th><th>免费</th></tr></thead><tbody>{[...selected.history].reverse().map((point) => <tr key={point.capturedAt}><td>{formatDate(point.capturedAt)}</td><td>{formatMoney(point.effectivePrice, selected.currency)}</td><td>{formatNumber(point.rating, 1)}</td><td>{formatNumber(point.bsr)}</td><td>{formatNumber(point.naturalKeywords)}</td><td>{formatNumber(point.freeShare, 1)}%</td></tr>)}</tbody></table></div>
-            </section>
-          </div>
 
-          <details className="secondary-details"><summary>竞品对标、下一步动作与数据口径</summary><div className="secondary-grid"><section><h3>优先竞品</h3><div className="history-table-wrap"><table className="history-table"><thead><tr><th>ASIN</th><th>价格</th><th>评分</th><th>月销量</th><th>关注点</th></tr></thead><tbody>{selected.competitors.map((item) => <tr key={item.asin}><td>{item.asin}</td><td>{formatMoney(item.price, selected.currency)}</td><td>{formatNumber(item.rating, 1)}</td><td>{formatNumber(item.monthlyUnits)}</td><td>{item.reason}</td></tr>)}</tbody></table></div></section><section><h3>下一步动作</h3><ol>{selected.actions.map((action) => <li key={action}>{action}</li>)}</ol><h3>数据说明</h3><ul>{selected.dataNotes.map((note) => <li key={note}>{note}</li>)}</ul></section></div></details>
-        </section>
-      )}
-    </main>
+            <section className="overview-grid">
+              <div className="overview-card accent"><span>监控对象</span><strong>{results.length}</strong><small>跨 {new Set(results.map((item) => item.marketplace)).size} 个站点</small></div>
+              <div className="overview-card"><span>今日有变化</span><strong>{changedCount}</strong><small>相较上一自然日</small></div>
+              <div className="overview-card"><span>需要重点关注</span><strong>{results.filter((item) => item.conclusions.some((entry) => entry.severity === "high")).length}</strong><small>价格、排名或流量异常</small></div>
+              <div className="overview-card wide"><span>监控口径</span><strong>日快照</strong><small>同一天保留最后一次用于趋势</small></div>
+            </section>
+
+            <section className="product-card watchlist-card">
+              <div className="card-heading"><div><span className="section-label">Watchlist</span><h2>监控列表</h2></div><span>{results.length} 个商品</span></div>
+              <div className="table-scroll"><table className="watch-table"><thead><tr><th>商品</th><th>折后价</th><th>评分</th><th>BSR</th><th>核心流量</th><th>最近同步</th><th /></tr></thead><tbody>{results.map((item) => { const key = `${item.marketplace}:${item.asin}`; return <tr key={key} className={selectedKey === key ? "selected" : ""} onClick={() => setSelectedKey(key)}><td><span className="market-pill">{item.marketplace}</span><span><strong>{item.asin}</strong><small>{item.brand || "品牌待识别"}</small></span></td><td><strong>{formatMoney(item.metrics.effectivePrice, item.currency)}</strong><DeltaBadge change={item.changes.effectivePrice} /></td><td><strong>{formatNumber(item.metrics.rating, 1)}</strong><DeltaBadge change={item.changes.rating} mode="absolute" /></td><td><strong>{formatNumber(item.metrics.bsr)}</strong><DeltaBadge change={item.changes.bsr} /></td><td><strong>{formatNumber(item.traffic.naturalKeywords)} 自然词</strong><small>免费 {formatNumber(item.traffic.freeShare, 1)}%</small></td><td><strong>{formatDate(item.capturedAt)}</strong><small>{item.history.length} 天记录</small></td><td><button type="button" className="history-link" onClick={(event) => { event.stopPropagation(); openHistory(item); }}>查历史</button></td></tr>; })}{!results.length && <tr><td className="empty-cell" colSpan={7}>还没有监控对象。上方输入 ASIN，建立第一份基线。</td></tr>}</tbody></table></div>
+            </section>
+            {selected && <SnapshotDetail result={selected} />}
+          </div>
+        ) : (
+          <div className="page-content history-page">
+            <section className="history-hero">
+              <div className="history-copy"><span className="section-label">Historical lookup</span><h2>看清一个 ASIN 的过去，<br />再判断它的现在。</h2><p>查询平台历史价格、BSR、评分与评论轨迹；已加入监控的 ASIN 还能查看本产品留存的折后价和流量快照。</p></div>
+              <form className="history-search" onSubmit={handleHistoryQuery}>
+                <label>查询对象</label><div className="history-fields"><select aria-label="历史查询站点" value={historyMarketplace} onChange={(event) => setHistoryMarketplace(event.target.value)}>{MARKETPLACES.map((item) => <option key={item}>{item}</option>)}</select><input value={historyAsin} onChange={(event) => setHistoryAsin(event.target.value.toUpperCase())} placeholder="输入 10 位 ASIN" maxLength={10} /><select aria-label="历史范围" value={historyDays} onChange={(event) => setHistoryDays(event.target.value)}><option value="30">近 30 天</option><option value="90">近 90 天</option><option value="180">近 180 天</option><option value="365">近 365 天</option></select><button type="submit" disabled={historyLoading}>{historyLoading ? "查询中…" : "查询历史"}</button></div><p role="status">{historyMessage}</p>
+              </form>
+            </section>
+
+            {!historyResult ? (
+              <section className="history-empty-grid"><div className="history-empty-card"><span>01</span><strong>平台历史</strong><p>首次查询即可查看 SellerSprite Keepa 返回的过往售价、BSR、评分和评论数。</p></div><div className="history-empty-card"><span>02</span><strong>留存快照</strong><p>从加入监控开始，每日累积折后价和核心流量，生成严格同口径趋势。</p></div><div className="history-empty-card dark"><span>查询说明</span><strong>两种历史，分开标注</strong><p>平台轨迹用于回看过去；产品快照用于日常经营比较，不混用价格口径。</p></div></section>
+            ) : (
+              <>
+                <section className="product-card history-product">
+                  <div className="history-product-info">{historyResult.platform.imageUrl ? <img src={historyResult.platform.imageUrl} alt="" /> : <div className="image-placeholder">ASIN</div>}<div><div className="product-code"><span>{historyResult.platform.marketplace}</span>{historyResult.platform.asin}</div><h2>{historyResult.platform.title}</h2><p>{historyResult.platform.brand || "品牌待识别"} · 覆盖近 {historyResult.platform.rangeDays} 天 · {historyResult.platform.points.length} 个数据点</p></div></div>
+                  <a href={historyResult.platform.amazonUrl} target="_blank" rel="noreferrer" className="ghost-button">Amazon 商品页 ↗</a>
+                </section>
+                <section className="history-overview">
+                  <div><span>最新平台售价</span><strong>{formatMoney(latestPlatformPoint?.marketPrice ?? null, historyResult.platform.currency)}</strong><small>{platformPriceChange === null ? "缺少期初可比价" : `${platformPriceChange >= 0 ? "上涨" : "下降"} ${Math.abs(platformPriceChange).toFixed(1)}%`}</small></div>
+                  <div><span>最新 BSR</span><strong>{formatNumber(latestPlatformPoint?.bsr ?? null)}</strong><small>数字越低越好</small></div>
+                  <div><span>最新评分</span><strong>{formatNumber(latestPlatformPoint?.rating ?? null, 1)}</strong><small>{formatNumber(latestPlatformPoint?.reviews ?? null)} 条评论</small></div>
+                  <div><span>本产品快照</span><strong>{historyResult.retained ? `${historyResult.retained.history.length} 天` : "未监控"}</strong><small>{historyResult.retained ? "可查看折后价与流量" : "同步今日数据后开始累积"}</small></div>
+                </section>
+                <section className="product-card platform-chart-card">
+                  <div className="card-heading"><div><span className="section-label">SellerSprite Keepa</span><h2>平台历史轨迹</h2></div><span>{historyResult.platform.points[0] ? `${formatDate(historyResult.platform.points[0].capturedAt)} — ${formatDate(historyResult.platform.points.at(-1)!.capturedAt)}` : "暂无数据"}</span></div>
+                  <div className="metric-tabs large">{PLATFORM_METRICS.map((item) => <button type="button" key={item.key} className={historyMetric === item.key ? "active" : ""} onClick={() => setHistoryMetric(item.key)}>{item.label}</button>)}</div>
+                  <PlatformChart response={historyResult} metric={historyMetric} />
+                  <p className="source-note">{historyResult.platform.sourceNote}</p>
+                </section>
+                {historyResult.retained ? <SnapshotDetail result={historyResult.retained} /> : <section className="start-monitoring"><div><span className="section-label">Start monitoring</span><h2>这个 ASIN 还没有产品快照</h2><p>平台历史可以回看过去；要持续追踪折后价和核心流量，需要从今天建立自己的监控基线。</p></div><button type="button" onClick={() => { setInput(`${historyMarketplace} ${historyAsin}`); setDefaultMarketplace(historyMarketplace); setView("monitor"); }}>去建立今日基线 →</button></section>}
+              </>
+            )}
+          </div>
+        )}
+      </main>
+    </div>
   );
 }
