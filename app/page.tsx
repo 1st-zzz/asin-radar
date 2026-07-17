@@ -13,7 +13,7 @@ import type {
 
 const MARKETPLACES = ["US", "JP", "UK", "DE", "FR", "IT", "ES", "CA", "IN", "MX", "BR", "AU", "AE"];
 type ViewMode = "monitor" | "history";
-type SnapshotMetric = "effectivePrice" | "monthlyUnits" | "monthlyRevenue" | "dealPrice" | "rating" | "bsr" | "naturalKeywords" | "naturalTrafficShare" | "adTrafficShare" | "spTrafficShare" | "sbvTrafficShare" | "spKeywords" | "sbvKeywords";
+type SnapshotMetric = "effectivePrice" | "monthlyUnits" | "monthlyRevenue" | "dealPrice" | "rating" | "bsr" | "naturalKeywords" | "freeShare" | "paidShare" | "adTrafficShare" | "spKeywords" | "sbvKeywords";
 type PlatformMetric = "marketPrice" | "promotionPrice" | "bsr" | "rating" | "reviews";
 
 const SNAPSHOT_METRICS: Array<{ key: SnapshotMetric; label: string }> = [
@@ -24,10 +24,9 @@ const SNAPSHOT_METRICS: Array<{ key: SnapshotMetric; label: string }> = [
   { key: "rating", label: "评分" },
   { key: "bsr", label: "BSR" },
   { key: "naturalKeywords", label: "自然词" },
-  { key: "naturalTrafficShare", label: "自然流量占比" },
-  { key: "adTrafficShare", label: "广告流量占比" },
-  { key: "spTrafficShare", label: "SP 占比" },
-  { key: "sbvTrafficShare", label: "SBV 占比" },
+  { key: "freeShare", label: "免费来源占比" },
+  { key: "paidShare", label: "付费来源占比" },
+  { key: "adTrafficShare", label: "关键词广告贡献" },
   { key: "spKeywords", label: "SP 词" },
   { key: "sbvKeywords", label: "SBV 词" },
 ];
@@ -111,7 +110,7 @@ function Bars({ points, values, labels, formatter }: { points: string[]; values:
 
 function SnapshotChart({ result, metric }: { result: AnalysisResult; metric: SnapshotMetric }) {
   const history = result.history.slice(-30);
-  const percentMetric = metric === "naturalTrafficShare" || metric === "adTrafficShare" || metric === "spTrafficShare" || metric === "sbvTrafficShare";
+  const percentMetric = metric === "freeShare" || metric === "paidShare" || metric === "adTrafficShare";
   const formatter = (value: number | null) => metric === "effectivePrice" || metric === "monthlyRevenue" || metric === "dealPrice" ? formatMoney(value, result.currency) : metric === "rating" ? formatNumber(value, 1) : percentMetric ? `${formatNumber(value, 1)}%` : formatNumber(value);
   return <Bars points={history.map((point) => point.capturedAt)} labels={history.map((point) => formatDate(point.capturedAt))} values={history.map((point: HistoryPoint) => point[metric])} formatter={formatter} />;
 }
@@ -179,21 +178,21 @@ function TrafficPanel({ result }: { result: AnalysisResult }) {
   const keywordRows = result.keywordPlacementChanges.length
     ? result.keywordPlacementChanges
     : result.traffic.coreKeywords.map((item) => ({ ...item, previousNaturalRank: null, previousAdRank: null, naturalRankDelta: null, adRankDelta: null, status: "new" as const }));
-  const naturalShare = result.traffic.naturalTrafficShare ?? 0;
-  const adShare = result.traffic.adTrafficShare ?? 0;
+  const freeShare = result.traffic.freeShare ?? 0;
+  const paidShare = result.traffic.paidShare ?? 0;
   return (
     <section className="traffic-panel">
-      <div className="traffic-heading"><div><span className="section-label">Traffic Watch</span><h3>广告与自然流量结构</h3></div><span>覆盖 {formatNumber(result.traffic.trafficCoverage, 1)}% 核心流量</span></div>
-      <div className="traffic-share-bar" aria-label={`自然流量 ${naturalShare.toFixed(1)}%，广告流量 ${adShare.toFixed(1)}%`}>
-        <span className="natural" style={{ width: `${Math.max(0, Math.min(100, naturalShare))}%` }} />
-        <span className="paid" style={{ width: `${Math.max(0, Math.min(100, adShare))}%` }} />
+      <div className="traffic-heading"><div><span className="section-label">Traffic Watch</span><h3>免费与付费流量来源</h3></div><span>关键词贡献覆盖 {formatNumber(result.traffic.trafficCoverage, 1)}%</span></div>
+      <div className="traffic-share-bar" aria-label={`免费流量 ${freeShare.toFixed(1)}%，付费流量 ${paidShare.toFixed(1)}%`}>
+        <span className="natural" style={{ width: `${Math.max(0, Math.min(100, freeShare))}%` }} />
+        <span className="paid" style={{ width: `${Math.max(0, Math.min(100, paidShare))}%` }} />
       </div>
       <div className="traffic-metrics">
-        <div><span>自然流量占比</span><strong>{formatPercent(result.traffic.naturalTrafficShare)}</strong><DeltaBadge change={result.changes.naturalTrafficShare} mode="absolute" suffix="pp" /><small>{formatNumber(result.traffic.naturalKeywords)} 个自然词</small></div>
-        <div><span>广告流量占比</span><strong>{formatPercent(result.traffic.adTrafficShare)}</strong><DeltaBadge change={result.changes.adTrafficShare} mode="absolute" suffix="pp" /><small>{formatNumber(result.traffic.adKeywords)} 个广告词</small></div>
-        <div><span>SP</span><strong>{formatPercent(result.traffic.spTrafficShare)}</strong><DeltaBadge change={result.changes.spTrafficShare} mode="absolute" suffix="pp" /><small>{formatNumber(result.traffic.spKeywords)} 个 SP 词</small></div>
-        <div><span>SBV</span><strong>{formatPercent(result.traffic.sbvTrafficShare)}</strong><DeltaBadge change={result.changes.sbvTrafficShare} mode="absolute" suffix="pp" /><small>{formatNumber(result.traffic.sbvKeywords)} 个视频广告词</small></div>
-        <div><span>SB</span><strong>{formatPercent(result.traffic.sbTrafficShare)}</strong><span className="delta quiet">结构监控</span><small>{formatNumber(result.traffic.sbKeywords)} 个品牌广告词</small></div>
+        <div><span>免费来源占比</span><strong>{formatPercent(result.traffic.freeShare)}</strong><DeltaBadge change={result.changes.freeShare} mode="absolute" suffix="pp" /><small>含自然、推荐与免费关联</small></div>
+        <div><span>付费来源占比</span><strong>{formatPercent(result.traffic.paidShare)}</strong><DeltaBadge change={result.changes.paidShare} mode="absolute" suffix="pp" /><small>按付费关联来源数量计算</small></div>
+        <div><span>SP 广告词</span><strong>{formatNumber(result.traffic.spKeywords)} 词</strong><DeltaBadge change={result.changes.spKeywords} /><small>关键词广告贡献 {formatPercent(result.traffic.spTrafficShare, 2)}</small></div>
+        <div><span>SBV 视频广告词</span><strong>{formatNumber(result.traffic.sbvKeywords)} 词</strong><DeltaBadge change={result.changes.sbvKeywords} /><small>关键词广告贡献 {formatPercent(result.traffic.sbvTrafficShare, 2)}</small></div>
+        <div><span>SB 品牌广告词</span><strong>{formatNumber(result.traffic.sbKeywords)} 词</strong><span className="delta quiet">结构监控</span><small>关键词广告贡献 {formatPercent(result.traffic.sbTrafficShare, 2)}</small></div>
       </div>
       <div className="keyword-placement">
         <div className="keyword-placement-heading"><strong>核心关键词广告位</strong><small>自然位、SP、SBV、SB 每日对比</small></div>
@@ -214,7 +213,7 @@ function TrafficPanel({ result }: { result: AnalysisResult }) {
           </table>
         </div>
       </div>
-      <p className="traffic-source-note">{result.traffic.sourceNote} 免费/付费关联占比为 {formatNumber(result.traffic.freeShare, 1)}% / {formatNumber(result.traffic.paidShare, 1)}%，单独作为关联结构参考。</p>
+      <p className="traffic-source-note">{result.traffic.sourceNote} 当前关键词自然/广告贡献为 {formatPercent(result.traffic.naturalTrafficShare, 2)} / {formatPercent(result.traffic.adTrafficShare, 2)}；它不等于整体免费/付费占比。</p>
     </section>
   );
 }
@@ -239,7 +238,7 @@ function SnapshotDetail({ result }: { result: AnalysisResult }) {
         <div><span>PD / Coupon / Deal</span><strong className={`promotion-value ${promotionState.tone}`}>{promotionState.label}</strong>{result.promotion.dealPrice !== null ? <DeltaBadge change={result.changes.dealPrice} /> : <span className="delta quiet">状态监控</span>}<small>{promotionState.detail}</small></div>
         <div><span>评分</span><strong>{formatNumber(result.metrics.rating, 1)}</strong><DeltaBadge change={result.changes.rating} mode="absolute" /><small>{formatNumber(result.metrics.reviews)} 个评分</small></div>
         <div><span>主类 BSR</span><strong>{formatNumber(result.metrics.bsr)}</strong><DeltaBadge change={result.changes.bsr} /><small>数字越低越好</small></div>
-        <div><span>核心流量</span><strong>自然 {formatPercent(result.traffic.naturalTrafficShare)}</strong><DeltaBadge change={result.changes.naturalTrafficShare} mode="absolute" suffix="pp" /><small>广告 {formatPercent(result.traffic.adTrafficShare)} · SP {formatNumber(result.traffic.spKeywords)} 词 · SBV {formatNumber(result.traffic.sbvKeywords)} 词</small></div>
+        <div><span>核心流量</span><strong>免费 {formatPercent(result.traffic.freeShare)}</strong><DeltaBadge change={result.changes.freeShare} mode="absolute" suffix="pp" /><small>付费 {formatPercent(result.traffic.paidShare)} · SP {formatNumber(result.traffic.spKeywords)} 词 · SBV {formatNumber(result.traffic.sbvKeywords)} 词</small></div>
       </div>
       <section className="promotion-panel">
         <div className="promotion-heading"><div><span className="section-label">Promotion Watch</span><h3>销量与促销状态</h3></div><span className={`promotion-badge ${promotionState.tone}`}>{promotionState.label}</span></div>
@@ -444,7 +443,7 @@ export default function Home() {
                         <td><span className={`promotion-badge ${promotionState.tone}`}>{promotionState.label}</span><small>{promotionState.detail}</small></td>
                         <td><strong>{formatNumber(item.metrics.rating, 1)}</strong><DeltaBadge change={item.changes.rating} mode="absolute" /></td>
                         <td><strong>{formatNumber(item.metrics.bsr)}</strong><DeltaBadge change={item.changes.bsr} /></td>
-                        <td><strong>自然 {formatPercent(item.traffic.naturalTrafficShare)} · 广告 {formatPercent(item.traffic.adTrafficShare)}</strong><small>SP {formatNumber(item.traffic.spKeywords)} 词 · SBV {formatNumber(item.traffic.sbvKeywords)} 词</small></td>
+                        <td><strong>免费 {formatPercent(item.traffic.freeShare)} · 付费 {formatPercent(item.traffic.paidShare)}</strong><small>SP {formatNumber(item.traffic.spKeywords)} 词 · SBV {formatNumber(item.traffic.sbvKeywords)} 词</small></td>
                         <td><strong className={item.listingChanges.changed ? "listing-table-changed" : ""}>{item.listingChanges.baseline ? "已建基线" : item.listingChanges.changed ? `${item.listingChanges.summaries.length} 项变动` : "无变动"}</strong><small>{item.listing.imageUrls.length} 图 · {item.listing.bullets.length} 条五点</small></td>
                         <td><strong>{formatDate(item.capturedAt)}</strong><small>{item.history.length} 天记录</small></td>
                         <td><button type="button" className="history-link" onClick={(event) => { event.stopPropagation(); openHistory(item); }}>查历史</button></td>
@@ -460,7 +459,7 @@ export default function Home() {
         ) : (
           <div className="page-content history-page">
             <section className="history-hero">
-              <div className="history-copy"><h2>查询 ASIN 历史表现</h2><p>查询平台历史价格、Deal、BSR、评分与评论轨迹；已加入监控的 ASIN 还可查看销量、广告/自然流量占比及 SP、SBV 核心关键词位变化。</p></div>
+              <div className="history-copy"><h2>查询 ASIN 历史表现</h2><p>查询平台历史价格、Deal、BSR、评分与评论轨迹；已加入监控的 ASIN 还可查看免费/付费来源占比、关键词广告贡献及 SP、SBV 核心广告位变化。</p></div>
               <form className="history-search" onSubmit={handleHistoryQuery}>
                 <label>查询对象</label><div className="history-fields"><select aria-label="历史查询站点" value={historyMarketplace} onChange={(event) => setHistoryMarketplace(event.target.value)}>{MARKETPLACES.map((item) => <option key={item}>{item}</option>)}</select><input value={historyAsin} onChange={(event) => setHistoryAsin(event.target.value.toUpperCase())} placeholder="输入 10 位 ASIN" maxLength={10} /><select aria-label="历史范围" value={historyDays} onChange={(event) => setHistoryDays(event.target.value)}><option value="30">近 30 天</option><option value="90">近 90 天</option><option value="180">近 180 天</option><option value="365">近 365 天</option></select><button type="submit" disabled={historyLoading}>{historyLoading ? "查询中…" : "查询历史"}</button></div><p role="status">{historyMessage}</p>
               </form>

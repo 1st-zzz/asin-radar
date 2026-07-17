@@ -435,8 +435,8 @@ export async function analyzeAsin(marketplace: string, asin: string): Promise<An
     const listingImages = uniqueStrings(galleryImages.length ? galleryImages : fallbackImages);
     const conclusions: Array<{ severity: Severity; title: string; body: string }> = [];
 
-    if (trafficMix.naturalTrafficShare !== null && trafficMix.naturalTrafficShare >= 75) conclusions.push({ severity: "info", title: "自然流量结构较健康", body: `核心流量词加权后，自然流量占 ${trafficMix.naturalTrafficShare.toFixed(1)}%，广告流量占 ${(trafficMix.adTrafficShare ?? 0).toFixed(1)}%。` });
-    if (trafficMix.adTrafficShare !== null && trafficMix.adTrafficShare >= 40) conclusions.push({ severity: "medium", title: "广告流量依赖偏高", body: `广告流量占 ${trafficMix.adTrafficShare.toFixed(1)}%，其中 SP ${(trafficMix.spTrafficShare ?? 0).toFixed(1)}%、SBV ${(trafficMix.sbvTrafficShare ?? 0).toFixed(1)}%。` });
+    if (freeShare !== null && freeShare >= 75) conclusions.push({ severity: "info", title: "免费来源结构较健康", body: `SellerSprite 关联来源中，免费来源占 ${freeShare.toFixed(1)}%，付费来源占 ${(paidShare ?? 0).toFixed(1)}%。` });
+    if (paidShare !== null && paidShare >= 40) conclusions.push({ severity: "medium", title: "付费来源依赖偏高", body: `SellerSprite 关联来源中，付费来源占 ${paidShare.toFixed(1)}%；当前 SP ${spKeywords ?? 0} 个、SBV ${sbvKeywords ?? 0} 个。` });
     if (medianRating !== null && typeof seed.rating === "number" && seed.rating < medianRating) conclusions.push({ severity: "medium", title: "评分低于直接竞品中位数", body: `当前评分 ${seed.rating.toFixed(1)}，竞品中位数 ${medianRating.toFixed(1)}，建议优先分析近期差评。` });
     if (medianPrice !== null && lookupPrice !== null) {
       const gap = ((lookupPrice - medianPrice) / medianPrice) * 100;
@@ -456,7 +456,7 @@ export async function analyzeAsin(marketplace: string, asin: string): Promise<An
     }
     if (!conclusions.length) conclusions.push({ severity: "info", title: "已建立首份基线", body: "本次没有历史快照，需等下一次同口径采集后才能生成变化告警。" });
 
-    const dataNotes = ["月销量、销量增长率和销售额为 SellerSprite 估算值，不是 Amazon 后台实际订单。", `Coupon 来自 coupon/couponTrends；PD 仅在 primePrice 明确大于 0 时标记；Amazon Deal 来自近 36 小时 Keepa dealPrice。三种促销独立记录，历史活动不视为当前活动。当前共返回 ${promotionHistory.length} 条促销记录。`, "自然/广告流量占比按 trafficPercentage × naturalRatio/adRatio 加权；SP、SBV、SB 按关键词 badges 区分。流量占比与免费/付费关联占比不是同一口径。"];
+    const dataNotes = ["月销量、销量增长率和销售额为 SellerSprite 估算值，不是 Amazon 后台实际订单。", `Coupon 来自 coupon/couponTrends；PD 仅在 primePrice 明确大于 0 时标记；Amazon Deal 来自近 36 小时 Keepa dealPrice。三种促销独立记录，历史活动不视为当前活动。当前共返回 ${promotionHistory.length} 条促销记录。`, "整体免费/付费来源占比按 traffic_listing_stat 的关联来源数量计算；关键词广告贡献按 trafficPercentage × adRatio 加权，两者分母不同，不能互相替代。SP、SBV、SB 按关键词 badges 区分。"];
     dataNotes.push(Object.keys(media).length
       ? "Listing 标题、五点和属性来自详情接口，图片组来自 Keepa；按每日快照和上一自然日比较。"
       : "Listing 标题、五点和属性已留存；本次 Keepa 图片组不可用，仅保存详情主图。");
@@ -467,7 +467,7 @@ export async function analyzeAsin(marketplace: string, asin: string): Promise<An
       salesVersion: 1,
       promotionVersion: 2,
       listingVersion: 1,
-      trafficVersion: 1,
+      trafficVersion: 2,
       marketplace,
       asin,
       capturedAt: capturedAt.toISOString(),
@@ -475,7 +475,7 @@ export async function analyzeAsin(marketplace: string, asin: string): Promise<An
       brand: detailAsin.brand ?? seed.brand ?? "",
       amazonUrl: `https://www.${AMAZON_DOMAINS[marketplace]}/dp/${asin}`,
       currency: CURRENCIES[marketplace] ?? "USD",
-      healthScore: healthScore(seed.rating ?? null, trafficMix.naturalTrafficShare ?? freeShare, priceConflict),
+      healthScore: healthScore(seed.rating ?? null, freeShare, priceConflict),
       metrics: {
         price: currentEffectivePrice ?? detailPrice ?? lookupPrice,
         listPrice: detailPrice ?? lookupPrice,
@@ -524,15 +524,15 @@ export async function analyzeAsin(marketplace: string, asin: string): Promise<An
         freeShare,
         paidShare,
         ...trafficMix,
-        sourceNote: "流量占比来自 SellerSprite 前 50 个核心流量词加权；关键词数量来自 traffic_keyword_stat；关联免费/付费占比单独保留。",
-        interpretation: trafficMix.naturalTrafficShare === null ? "流量占比暂缺；已保留自然词、SP、SBV、SB 关键词数量。" : trafficMix.naturalTrafficShare >= 75 ? `自然流量占主导；广告流量中 SP ${(trafficMix.spTrafficShare ?? 0).toFixed(1)}%、SBV ${(trafficMix.sbvTrafficShare ?? 0).toFixed(1)}%。` : "广告流量占比较高，重点监控 SP/SBV 广告位和核心自然位。",
+        sourceNote: "整体免费/付费来源占比按 SellerSprite traffic_listing_stat 的关联来源数量计算；关键词广告贡献来自前 50 个核心词加权；关键词数量来自 traffic_keyword_stat。",
+        interpretation: freeShare === null ? "整体流量结构暂缺；已保留 SP、SBV、SB 关键词数量和关键词广告位。" : `整体免费流量 ${freeShare.toFixed(1)}%、付费流量 ${(paidShare ?? 0).toFixed(1)}%；SP ${spKeywords ?? 0} 个、SBV ${sbvKeywords ?? 0} 个、SB ${sbKeywords ?? 0} 个。`,
       },
       keywordPlacementChanges: [],
       conclusions,
       competitors: competitors.map((item: AnyRecord) => ({ asin: item.asin, brand: item.brand ?? "", price: item.price ?? null, rating: item.rating ?? null, monthlyUnits: item.units ?? null, reason: competitorReason(item, medianPrice) })),
       actions: [
         medianRating !== null && typeof seed.rating === "number" && seed.rating < medianRating ? "优先分析近期 1–3 星评论，找出评分差距。" : "保持当前评分优势并监控新增差评主题。",
-        trafficMix.naturalTrafficShare !== null && trafficMix.naturalTrafficShare >= 75 ? "守住核心自然位，并持续检查 SP、SBV 是否扩张。" : "检查高流量词的自然位、SP 位和 SBV 位变化。",
+        freeShare !== null && freeShare >= 75 ? "守住免费流量结构，并持续检查 SP、SBV 是否扩张。" : "检查付费流量结构与高流量词的 SP、SBV 广告位变化。",
         "明天按同一接口复查销量、PD、Coupon、Amazon Deal、折后价、BSR、评分和核心流量，形成首个日环比。",
       ],
       dataNotes,
@@ -560,6 +560,7 @@ export async function analyzeAsin(marketplace: string, asin: string): Promise<An
         bsr: emptyChange(detailAsin.bsrRank ?? null),
         naturalKeywords: emptyChange(naturalKeywords),
         freeShare: emptyChange(freeShare),
+        paidShare: emptyChange(paidShare),
         naturalTrafficShare: emptyChange(trafficMix.naturalTrafficShare),
         adTrafficShare: emptyChange(trafficMix.adTrafficShare),
         spTrafficShare: emptyChange(trafficMix.spTrafficShare),

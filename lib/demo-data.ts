@@ -177,6 +177,7 @@ export type AnalysisResult = {
     bsr: MetricChange;
     naturalKeywords: MetricChange;
     freeShare: MetricChange;
+    paidShare: MetricChange;
     naturalTrafficShare: MetricChange;
     adTrafficShare: MetricChange;
     spTrafficShare: MetricChange;
@@ -231,7 +232,7 @@ export const demoResult: AnalysisResult = {
   salesVersion: 1,
   promotionVersion: 2,
   listingVersion: 1,
-  trafficVersion: 1,
+  trafficVersion: 2,
   marketplace: "DE",
   asin: "B0DPDKLHYM",
   capturedAt: "2026-07-16T22:31:59+08:00",
@@ -282,16 +283,16 @@ export const demoResult: AnalysisResult = {
     { capturedAt: "2026-04-02T12:00:00.000Z", kind: "coupon", label: "Coupon · 金额", listPrice: 31.99, promotionPrice: 26.99, discountAmount: 5, discountPercent: 15.63 },
   ],
   traffic: {
-    naturalKeywords: 130,
-    adKeywords: 4,
-    spKeywords: 4,
+    naturalKeywords: 134,
+    adKeywords: 6,
+    spKeywords: 6,
     sbvKeywords: 0,
     sbKeywords: 0,
-    freeShare: 93.05,
-    paidShare: 6.95,
-    naturalTrafficShare: 99.43,
-    adTrafficShare: 0.57,
-    spTrafficShare: 0.57,
+    freeShare: 93.09,
+    paidShare: 6.91,
+    naturalTrafficShare: 99.34,
+    adTrafficShare: 0.66,
+    spTrafficShare: 0.66,
     sbvTrafficShare: 0,
     sbTrafficShare: 0,
     otherAdTrafficShare: 0,
@@ -301,8 +302,8 @@ export const demoResult: AnalysisResult = {
       { keyword: "titan", keywordCn: "泰坦", trafficShare: 5.93, searches: 18188, naturalRank: 5, adRank: null, adType: null },
       { keyword: "schneidebretter", keywordCn: "砧板", trafficShare: 3.43, searches: 8784, naturalRank: 20, adRank: 10, adType: "SP" },
     ],
-    sourceNote: "流量占比按 SellerSprite 核心流量词的 trafficPercentage × naturalRatio/adRatio 加权；广告类型按 badges 区分。",
-    interpretation: "自然流量占主导；当前广告流量主要来自 SP，暂未检测到 SBV。",
+    sourceNote: "整体免费/付费来源占比按 SellerSprite traffic_listing_stat 的关联来源数量计算；关键词广告贡献按 trafficPercentage × adRatio 加权；SP、SBV、SB 按 badges 区分。",
+    interpretation: "整体付费流量结构占 6.91%；当前检测到 6 个 SP 词，暂未检测到 SBV 或 SB。",
   },
   keywordPlacementChanges: [],
   conclusions: [
@@ -348,13 +349,14 @@ export const demoResult: AnalysisResult = {
     effectivePrice: { current: 26.99, previous: null, absolute: null, percent: null, direction: "new", favorable: null },
     rating: { current: 4, previous: null, absolute: null, percent: null, direction: "new", favorable: null },
     bsr: { current: 229700, previous: null, absolute: null, percent: null, direction: "new", favorable: null },
-    naturalKeywords: { current: 130, previous: null, absolute: null, percent: null, direction: "new", favorable: null },
-    freeShare: { current: 93.05, previous: null, absolute: null, percent: null, direction: "new", favorable: null },
-    naturalTrafficShare: { current: 99.43, previous: null, absolute: null, percent: null, direction: "new", favorable: null },
-    adTrafficShare: { current: 0.57, previous: null, absolute: null, percent: null, direction: "new", favorable: null },
-    spTrafficShare: { current: 0.57, previous: null, absolute: null, percent: null, direction: "new", favorable: null },
+    naturalKeywords: { current: 134, previous: null, absolute: null, percent: null, direction: "new", favorable: null },
+    freeShare: { current: 93.09, previous: null, absolute: null, percent: null, direction: "new", favorable: null },
+    paidShare: { current: 6.91, previous: null, absolute: null, percent: null, direction: "new", favorable: null },
+    naturalTrafficShare: { current: 99.34, previous: null, absolute: null, percent: null, direction: "new", favorable: null },
+    adTrafficShare: { current: 0.66, previous: null, absolute: null, percent: null, direction: "new", favorable: null },
+    spTrafficShare: { current: 0.66, previous: null, absolute: null, percent: null, direction: "new", favorable: null },
     sbvTrafficShare: { current: 0, previous: null, absolute: null, percent: null, direction: "new", favorable: null },
-    spKeywords: { current: 4, previous: null, absolute: null, percent: null, direction: "new", favorable: null },
+    spKeywords: { current: 6, previous: null, absolute: null, percent: null, direction: "new", favorable: null },
     sbvKeywords: { current: 0, previous: null, absolute: null, percent: null, direction: "new", favorable: null },
     monthlyUnits: { current: 682, previous: null, absolute: null, percent: null, direction: "new", favorable: null },
     monthlyUnitsGrowthPercent: { current: 18.4, previous: null, absolute: null, percent: null, direction: "new", favorable: null },

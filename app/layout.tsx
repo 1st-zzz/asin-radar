@@ -12,7 +12,7 @@ export async function generateMetadata(): Promise<Metadata> {
   const protocol = requestHeaders.get("x-forwarded-proto") ?? (host.startsWith("localhost") ? "http" : "https");
   const imageUrl = `${protocol}://${host}/og.png`;
   const title = "ASIN Radar｜竞品监控与历史查询";
-  const description = "查询 Amazon ASIN 历史表现，监控销量、促销、自然与广告流量占比、SP/SBV 核心关键词位及 Listing 变化。";
+  const description = "查询 Amazon ASIN 历史表现，监控销量、促销、免费与付费流量来源、SP/SBV 核心关键词位及 Listing 变化。";
   return {
     title,
     description,

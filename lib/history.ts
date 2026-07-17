@@ -194,6 +194,7 @@ export function hydrateResult(input: Partial<AnalysisResult>): AnalysisResult {
       bsr: emptyChange(metrics.bsr ?? null),
       naturalKeywords: emptyChange(traffic.naturalKeywords ?? null),
       freeShare: emptyChange(traffic.freeShare ?? null),
+      paidShare: emptyChange(traffic.paidShare ?? null),
       naturalTrafficShare: emptyChange(traffic.naturalTrafficShare ?? null),
       adTrafficShare: emptyChange(traffic.adTrafficShare ?? null),
       spTrafficShare: emptyChange(traffic.spTrafficShare ?? null),
@@ -289,12 +290,12 @@ function changeConclusion(changes: AnalysisResult["changes"]): Array<{ severity:
     });
   }
 
-  const adTrafficShare = changes.adTrafficShare;
-  if (adTrafficShare.absolute !== null && Math.abs(adTrafficShare.absolute) >= 5) {
+  const paidShare = changes.paidShare;
+  if (paidShare.absolute !== null && Math.abs(paidShare.absolute) >= 5) {
     conclusions.push({
-      severity: Math.abs(adTrafficShare.absolute) >= 15 ? "high" : "medium",
-      title: `广告流量占比${adTrafficShare.direction === "up" ? "提升" : "下降"} ${Math.abs(adTrafficShare.absolute).toFixed(1)} 个百分点`,
-      body: `由 ${adTrafficShare.previous?.toFixed(1)}% 变为 ${adTrafficShare.current?.toFixed(1)}%；按核心流量词的自然/广告贡献加权。`,
+      severity: Math.abs(paidShare.absolute) >= 15 ? "high" : "medium",
+      title: `付费流量占比${paidShare.direction === "up" ? "提升" : "下降"} ${Math.abs(paidShare.absolute).toFixed(1)} 个百分点`,
+      body: `由 ${paidShare.previous?.toFixed(1)}% 变为 ${paidShare.current?.toFixed(1)}%；按 SellerSprite 免费/付费关联来源数量计算。`,
     });
   }
 
@@ -365,6 +366,7 @@ export function decorateWithHistory(currentInput: AnalysisResult, previousInputs
     bsr: change(current.metrics.bsr, prior?.bsr ?? null, "down"),
     naturalKeywords: change(current.traffic.naturalKeywords, trafficPrior?.traffic.naturalKeywords ?? null, "up"),
     freeShare: change(current.traffic.freeShare, trafficPrior?.traffic.freeShare ?? null, "up"),
+    paidShare: change(current.traffic.paidShare, trafficPrior?.traffic.paidShare ?? null, "neutral"),
     naturalTrafficShare: change(current.traffic.naturalTrafficShare, trafficPrior?.traffic.naturalTrafficShare ?? null, "up"),
     adTrafficShare: change(current.traffic.adTrafficShare, trafficPrior?.traffic.adTrafficShare ?? null, "neutral"),
     spTrafficShare: change(current.traffic.spTrafficShare, trafficPrior?.traffic.spTrafficShare ?? null, "neutral"),
