@@ -90,3 +90,22 @@ export async function POST(request: Request) {
     return visitorJson(visitor, { error: error instanceof Error ? error.message : "分析请求失败" }, { status: 500 });
   }
 }
+
+export async function DELETE(request: Request) {
+  const visitor = await getVisitorSession(request);
+  const url = new URL(request.url);
+  const marketplace = (url.searchParams.get("marketplace") ?? "").trim().toUpperCase();
+  const asin = (url.searchParams.get("asin") ?? "").trim().toUpperCase();
+  if (!MARKETPLACES.has(marketplace) || !/^[A-Z0-9]{10}$/.test(asin)) {
+    return visitorJson(visitor, { error: "请输入有效的站点和 ASIN" }, { status: 400 });
+  }
+
+  try {
+    await getDb()
+      .delete(monitorRuns)
+      .where(and(eq(monitorRuns.userId, visitor.userId), eq(monitorRuns.marketplace, marketplace), eq(monitorRuns.asin, asin)));
+    return visitorJson(visitor, { deleted: true, marketplace, asin });
+  } catch {
+    return visitorJson(visitor, { error: "删除监控失败，请稍后重试" }, { status: 500 });
+  }
+}

@@ -3,9 +3,10 @@ import { access, readFile } from "node:fs/promises";
 import test from "node:test";
 
 test("builds the daily monitoring dashboard", async () => {
-  const [page, layout] = await Promise.all([
+  const [page, layout, analyzeRoute] = await Promise.all([
     readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/layout.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/analyze/route.ts", import.meta.url), "utf8"),
     access(new URL("../dist/server/index.js", import.meta.url)),
   ]);
   assert.match(layout, /ASIN Radar｜竞品监控与历史查询/);
@@ -29,7 +30,11 @@ test("builds the daily monitoring dashboard", async () => {
   assert.match(page, /SBV/);
   assert.match(page, /product-thumb/);
   assert.match(page, /商品主图/);
+  assert.match(page, /删除监控/);
+  assert.match(page, /全部留存快照和历史趋势/);
   assert.match(page, /fetch\("\/api\/analyze"\)/);
   assert.match(page, /fetch\(`\/api\/history\?\$\{query\}`\)/);
   assert.doesNotMatch(page, /codex-preview|Your site is taking shape|Codex is working/i);
+  assert.match(analyzeRoute, /export async function DELETE/);
+  assert.match(analyzeRoute, /eq\(monitorRuns\.userId, visitor\.userId\)/);
 });

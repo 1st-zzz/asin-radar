@@ -302,6 +302,7 @@ export default function Home() {
   const [results, setResults] = useState<AnalysisResult[]>([]);
   const [selectedKey, setSelectedKey] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [deletingKey, setDeletingKey] = useState("");
   const [message, setMessage] = useState("正在读取监控记录…");
   const [historyMarketplace, setHistoryMarketplace] = useState("DE");
   const [historyAsin, setHistoryAsin] = useState("B0DPDKLHYM");
@@ -383,6 +384,27 @@ export default function Home() {
     setHistoryMessage("已带入 ASIN，点击查询历史数据");
   }
 
+  async function handleDelete(item: AnalysisResult) {
+    const key = `${item.marketplace}:${item.asin}`;
+    if (!window.confirm(`删除 ${item.marketplace} ${item.asin} 的监控？\n\n该操作会同时删除这个产品的全部留存快照和历史趋势，且无法恢复。`)) return;
+    setDeletingKey(key);
+    setMessage(`正在删除 ${item.marketplace} ${item.asin}…`);
+    try {
+      const query = new URLSearchParams({ marketplace: item.marketplace, asin: item.asin });
+      const response = await fetch(`/api/analyze?${query}`, { method: "DELETE" });
+      const payload = (await response.json()) as { deleted?: boolean; error?: string };
+      if (!response.ok || !payload.deleted) throw new Error(payload.error || "删除监控失败");
+      const remaining = results.filter((result) => `${result.marketplace}:${result.asin}` !== key);
+      setResults(remaining);
+      setSelectedKey((current) => current === key ? remaining[0] ? `${remaining[0].marketplace}:${remaining[0].asin}` : "" : current);
+      setMessage(`已删除 ${item.marketplace} ${item.asin} 及其全部留存记录`);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "删除监控失败，请稍后重试");
+    } finally {
+      setDeletingKey("");
+    }
+  }
+
   const platformPoints = historyResult?.platform.points ?? [];
   const latestPlatformPoint = platformPoints[platformPoints.length - 1] ?? null;
   const firstPlatformPoint = historyResult?.platform.points[0] ?? null;
@@ -431,7 +453,7 @@ export default function Home() {
               <div className="card-heading"><div><span className="section-label">Watchlist</span><h2>监控列表</h2></div><span>{results.length} 个商品</span></div>
               <div className="table-scroll">
                 <table className="watch-table">
-                  <thead><tr><th>商品</th><th>折后价</th><th>月销量</th><th>PD / Coupon / Deal</th><th>评分</th><th>BSR</th><th>核心流量</th><th>Listing</th><th>最近同步</th><th /></tr></thead>
+                  <thead><tr><th>商品</th><th>折后价</th><th>月销量</th><th>PD / Coupon / Deal</th><th>评分</th><th>BSR</th><th>核心流量</th><th>Listing</th><th>最近同步</th><th>操作</th></tr></thead>
                   <tbody>
                     {results.map((item) => {
                       const key = `${item.marketplace}:${item.asin}`;
@@ -449,7 +471,7 @@ export default function Home() {
                         <td><strong>免费 {formatPercent(item.traffic.freeShare)} · 付费 {formatPercent(item.traffic.paidShare)}</strong><small>SP {formatNumber(item.traffic.spKeywords)} 词 · SBV {formatNumber(item.traffic.sbvKeywords)} 词</small></td>
                         <td><strong className={item.listingChanges.changed ? "listing-table-changed" : ""}>{item.listingChanges.baseline ? "已建基线" : item.listingChanges.changed ? `${item.listingChanges.summaries.length} 项变动` : "无变动"}</strong><small>{item.listing.imageUrls.length} 图 · {item.listing.bullets.length} 条五点</small></td>
                         <td><strong>{formatDate(item.capturedAt)}</strong><small>{item.history.length} 天记录</small></td>
-                        <td><button type="button" className="history-link" onClick={(event) => { event.stopPropagation(); openHistory(item); }}>查历史</button></td>
+                        <td><span className="row-actions"><button type="button" className="history-link" onClick={(event) => { event.stopPropagation(); openHistory(item); }}>查历史</button><button type="button" className="delete-link" disabled={deletingKey === key} onClick={(event) => { event.stopPropagation(); void handleDelete(item); }}>{deletingKey === key ? "删除中…" : "删除"}</button></span></td>
                       </tr>;
                     })}
                     {!results.length && <tr><td className="empty-cell" colSpan={10}>还没有监控对象。上方输入 ASIN 并点击“开始同步”，即可获取价格、销量、广告/自然流量和核心关键词位基线。</td></tr>}
