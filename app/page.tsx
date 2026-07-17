@@ -8,12 +8,13 @@ import type {
   MetricChange,
   MonitorResponse,
   PlatformHistoryPoint,
+  PromotionHistoryPoint,
 } from "../lib/demo-data";
 
 const MARKETPLACES = ["US", "JP", "UK", "DE", "FR", "IT", "ES", "CA", "IN", "MX", "BR", "AU", "AE"];
 type ViewMode = "monitor" | "history";
 type SnapshotMetric = "effectivePrice" | "monthlyUnits" | "monthlyRevenue" | "dealPrice" | "rating" | "bsr" | "naturalKeywords" | "freeShare";
-type PlatformMetric = "marketPrice" | "dealPrice" | "bsr" | "rating" | "reviews";
+type PlatformMetric = "marketPrice" | "promotionPrice" | "bsr" | "rating" | "reviews";
 
 const SNAPSHOT_METRICS: Array<{ key: SnapshotMetric; label: string }> = [
   { key: "effectivePrice", label: "折后价" },
@@ -27,7 +28,7 @@ const SNAPSHOT_METRICS: Array<{ key: SnapshotMetric; label: string }> = [
 ];
 const PLATFORM_METRICS: Array<{ key: PlatformMetric; label: string }> = [
   { key: "marketPrice", label: "平台售价" },
-  { key: "dealPrice", label: "Deal 价格" },
+  { key: "promotionPrice", label: "促销价" },
   { key: "bsr", label: "BSR" },
   { key: "rating", label: "评分" },
   { key: "reviews", label: "评论数" },
@@ -109,8 +110,28 @@ function PlatformChart({ response, metric }: { response: HistoryQueryResponse; m
   const source = response.platform.points.filter((point) => point[metric] !== null);
   const step = Math.max(1, Math.ceil(source.length / 24));
   const points = source.filter((_, index) => index % step === 0 || index === source.length - 1);
-  const formatter = (value: number | null) => metric === "marketPrice" || metric === "dealPrice" ? formatMoney(value, response.platform.currency) : metric === "rating" ? formatNumber(value, 1) : formatNumber(value);
+  const formatter = (value: number | null) => metric === "marketPrice" || metric === "promotionPrice" ? formatMoney(value, response.platform.currency) : metric === "rating" ? formatNumber(value, 1) : formatNumber(value);
   return <Bars points={points.map((point) => point.capturedAt)} labels={points.map((point) => formatDate(point.capturedAt))} values={points.map((point: PlatformHistoryPoint) => point[metric])} formatter={formatter} />;
+}
+
+function PromotionHistoryList({ points, currency }: { points: PromotionHistoryPoint[]; currency: string }) {
+  return (
+    <div className="promotion-history">
+      <div className="promotion-history-heading"><div><strong>最近价格促销记录</strong><small>历史记录，不代表当前活动</small></div><span>{points.length} 条</span></div>
+      {points.length ? (
+        <div className="promotion-history-list">
+          {points.slice(0, 8).map((point) => (
+            <div className="promotion-history-row" key={`${point.kind}:${point.capturedAt}:${point.promotionPrice}`}>
+              <time>{formatDate(point.capturedAt)}</time>
+              <span className={`promotion-badge ${point.kind}`}>{point.label}</span>
+              <strong>{formatMoney(point.promotionPrice, currency)}</strong>
+              <small>{point.listPrice !== null ? `原价 ${formatMoney(point.listPrice, currency)}` : "原价未返回"}{point.discountAmount !== null ? ` · 优惠 ${formatMoney(point.discountAmount, currency)}` : ""}</small>
+            </div>
+          ))}
+        </div>
+      ) : <div className="promotion-history-empty">所选时间范围内暂无 Coupon 或 Deal 历史记录。</div>}
+    </div>
+  );
 }
 
 function SnapshotDetail({ result }: { result: AnalysisResult }) {
@@ -126,8 +147,10 @@ function SnapshotDetail({ result }: { result: AnalysisResult }) {
       ? "Coupon"
       : result.promotion.dealActive === null && result.promotion.couponActive === null
         ? "数据待补充"
-        : "未检测到活动";
-  const promotionTone = result.promotion.dealActive ? "deal" : result.promotion.couponActive ? "coupon" : "quiet";
+        : result.promotionHistory.length
+          ? "当前无活动 · 历史有促销"
+          : "未检测到活动";
+  const promotionTone = result.promotion.dealActive ? "deal" : result.promotion.couponActive ? "coupon" : result.promotionHistory.length ? "history" : "quiet";
   return (
     <article className="product-card detail-card">
       <div className="detail-heading">
@@ -150,6 +173,7 @@ function SnapshotDetail({ result }: { result: AnalysisResult }) {
           <div><span>Coupon</span><strong>{result.promotion.couponActive ? result.promotion.couponValue ?? "已开启" : result.promotion.couponActive === false ? "未开启" : "暂无数据"}</strong><small>{result.promotion.couponFinalPrice !== null ? `券后 ${formatMoney(result.promotion.couponFinalPrice, result.currency)}` : "不默认与 Deal 叠加"}</small></div>
           <div className="promotion-change"><span>{result.promotionChanges.baseline ? "促销基线" : "相较上一自然日"}</span><strong>{result.promotionChanges.baseline ? "已开始留存" : result.promotionChanges.changed ? `${result.promotionChanges.summaries.length} 项变化` : "状态稳定"}</strong><small>{result.promotionChanges.summaries.join("；")}</small></div>
         </div>
+        <PromotionHistoryList points={result.promotionHistory} currency={result.currency} />
       </section>
       <section className="listing-panel">
         <div className="listing-panel-heading">
@@ -204,7 +228,7 @@ export default function Home() {
   const [message, setMessage] = useState("正在读取监控记录…");
   const [historyMarketplace, setHistoryMarketplace] = useState("DE");
   const [historyAsin, setHistoryAsin] = useState("B0DPDKLHYM");
-  const [historyDays, setHistoryDays] = useState("90");
+  const [historyDays, setHistoryDays] = useState("180");
   const [historyMetric, setHistoryMetric] = useState<PlatformMetric>("marketPrice");
   const [historyResult, setHistoryResult] = useState<HistoryQueryResponse | null>(null);
   const [historyLoading, setHistoryLoading] = useState(false);
@@ -265,7 +289,7 @@ export default function Home() {
       const payload = (await response.json()) as HistoryQueryResponse & { error?: string };
       if (!response.ok) throw new Error(payload.error || "历史查询暂时不可用");
       setHistoryResult(payload);
-      setHistoryMessage(`已返回 ${payload.platform.points.length} 个平台历史数据点${payload.retained ? `，以及 ${payload.retained.history.length} 天本产品快照` : ""}`);
+      setHistoryMessage(`已返回 ${payload.platform.points.length} 个平台历史数据点、${payload.platform.promotionHistory.length} 条促销记录${payload.retained ? `，以及 ${payload.retained.history.length} 天本产品快照` : ""}`);
     } catch (error) {
       setHistoryResult(null);
       setHistoryMessage(error instanceof Error ? error.message : "历史查询失败");
@@ -334,8 +358,8 @@ export default function Home() {
                   <tbody>
                     {results.map((item) => {
                       const key = `${item.marketplace}:${item.asin}`;
-                      const promotionLabel = item.promotion.dealActive ? "Deal 进行中" : item.promotion.couponActive ? "Coupon" : item.promotion.dealActive === null && item.promotion.couponActive === null ? "待补充" : "无活动";
-                      const promotionTone = item.promotion.dealActive ? "deal" : item.promotion.couponActive ? "coupon" : "quiet";
+                      const promotionLabel = item.promotion.dealActive ? "Deal 进行中" : item.promotion.couponActive ? "Coupon" : item.promotion.dealActive === null && item.promotion.couponActive === null ? "待补充" : item.promotionHistory.length ? "历史有促销" : "无活动";
+                      const promotionTone = item.promotion.dealActive ? "deal" : item.promotion.couponActive ? "coupon" : item.promotionHistory.length ? "history" : "quiet";
                       return <tr key={key} className={selectedKey === key ? "selected" : ""} onClick={() => setSelectedKey(key)}>
                         <td><span className="market-pill">{item.marketplace}</span><span><strong>{item.asin}</strong><small>{item.brand || "品牌待识别"}</small></span></td>
                         <td><strong>{formatMoney(item.metrics.effectivePrice, item.currency)}</strong><DeltaBadge change={item.changes.effectivePrice} /></td>
@@ -349,7 +373,7 @@ export default function Home() {
                         <td><button type="button" className="history-link" onClick={(event) => { event.stopPropagation(); openHistory(item); }}>查历史</button></td>
                       </tr>;
                     })}
-                    {!results.length && <tr><td className="empty-cell" colSpan={10}>还没有监控对象。上方输入 ASIN，建立第一份基线。</td></tr>}
+                    {!results.length && <tr><td className="empty-cell" colSpan={10}>还没有监控对象。上方输入 ASIN 并点击“开始同步”，即可获取当前价格、历史 Coupon/Deal 和销量基线。</td></tr>}
                   </tbody>
                 </table>
               </div>
@@ -366,7 +390,7 @@ export default function Home() {
             </section>
 
             {!historyResult ? (
-              <section className="history-empty-grid"><div className="history-empty-card"><span>01</span><strong>平台历史</strong><p>首次查询即可查看 SellerSprite Keepa 返回的过往售价、Deal 价格、BSR、评分和评论数。</p></div><div className="history-empty-card"><span>02</span><strong>留存快照</strong><p>从加入监控开始，每日累积销量估算、Deal/Coupon、折后价和核心流量。</p></div><div className="history-empty-card dark"><span>查询说明</span><strong>两种历史，分开标注</strong><p>平台轨迹用于回看过去；产品快照用于日常经营比较，不混用价格和销量口径。</p></div></section>
+              <section className="history-empty-grid"><div className="history-empty-card"><span>01</span><strong>平台历史</strong><p>首次查询即可查看 SellerSprite 返回的过往售价、Coupon、Deal、BSR、评分和评论数。</p></div><div className="history-empty-card"><span>02</span><strong>留存快照</strong><p>从加入监控开始，每日累积销量估算、Deal/Coupon、折后价和核心流量。</p></div><div className="history-empty-card dark"><span>查询说明</span><strong>当前活动与历史分开</strong><p>历史 Coupon/Deal 不代表目前仍有效；页面会分别标明当前状态和过往记录。</p></div></section>
             ) : (
               <>
                 <section className="product-card history-product">
@@ -383,6 +407,7 @@ export default function Home() {
                   <div className="card-heading"><div><span className="section-label">SellerSprite Keepa</span><h2>平台历史轨迹</h2></div><span>{historyResult.platform.points[0] ? `${formatDate(historyResult.platform.points[0].capturedAt)} — ${formatDate(historyResult.platform.points[historyResult.platform.points.length - 1].capturedAt)}` : "暂无数据"}</span></div>
                   <div className="metric-tabs large">{PLATFORM_METRICS.map((item) => <button type="button" key={item.key} className={historyMetric === item.key ? "active" : ""} onClick={() => setHistoryMetric(item.key)}>{item.label}</button>)}</div>
                   <PlatformChart response={historyResult} metric={historyMetric} />
+                  <PromotionHistoryList points={historyResult.platform.promotionHistory} currency={historyResult.platform.currency} />
                   <p className="source-note">{historyResult.platform.sourceNote}</p>
                 </section>
                 {historyResult.retained ? <SnapshotDetail result={historyResult.retained} /> : <section className="start-monitoring"><div><span className="section-label">Start monitoring</span><h2>这个 ASIN 还没有产品快照</h2><p>平台历史可以回看过去；要持续追踪销量、Deal/Coupon、折后价和核心流量，需要从今天建立自己的监控基线。</p></div><button type="button" onClick={() => { setInput(`${historyMarketplace} ${historyAsin}`); setDefaultMarketplace(historyMarketplace); setView("monitor"); }}>去建立今日基线 →</button></section>}

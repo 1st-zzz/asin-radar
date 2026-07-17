@@ -1,7 +1,7 @@
 import { env } from "cloudflare:workers";
 import { Client } from "@modelcontextprotocol/sdk/client";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
-import type { AnalysisResult, PlatformHistoryPoint, PlatformHistoryResult, Severity } from "./demo-data";
+import type { AnalysisResult, PlatformHistoryPoint, PlatformHistoryResult, PromotionHistoryPoint, Severity } from "./demo-data";
 
 const CURRENCIES: Record<string, string> = { US: "USD", JP: "JPY", UK: "GBP", DE: "EUR", FR: "EUR", IT: "EUR", ES: "EUR", CA: "CAD", IN: "INR", MX: "MXN", BR: "BRL", AU: "AUD", AE: "AED" };
 const AMAZON_DOMAINS: Record<string, string> = { US: "amazon.com", JP: "amazon.co.jp", UK: "amazon.co.uk", DE: "amazon.de", FR: "amazon.fr", IT: "amazon.it", ES: "amazon.es", CA: "amazon.ca", IN: "amazon.in", MX: "amazon.com.mx", BR: "amazon.com.br", AU: "amazon.com.au", AE: "amazon.ae" };
@@ -111,6 +111,7 @@ function uniqueStrings(values: string[]) {
 }
 
 type TrendValue = { timePoint?: number; value?: number };
+type CouponTrend = { date?: string; type?: string; asinPrice?: number; couponPrice?: number; finalPrice?: number };
 
 function recentDealObservation(value: unknown, capturedAt: number) {
   if (!Array.isArray(value)) return null;
@@ -119,8 +120,58 @@ function recentDealObservation(value: unknown, capturedAt: number) {
     .sort((a, b) => (b.timePoint ?? 0) - (a.timePoint ?? 0))[0] ?? null;
 }
 
-function mergeHistorySeries(data: AnyRecord) {
-  const byDay = new Map<string, PlatformHistoryPoint & { timestamp: number; price?: number | null; dealPrice?: number | null }>();
+function couponHistory(value: unknown): PromotionHistoryPoint[] {
+  if (!Array.isArray(value)) return [];
+  return (value as CouponTrend[])
+    .filter((item) => typeof item.date === "string" && !Number.isNaN(Date.parse(`${item.date}T12:00:00Z`)))
+    .map((item) => {
+      const listPrice = typeof item.asinPrice === "number" && item.asinPrice > 0 ? item.asinPrice : null;
+      const promotionPrice = typeof item.finalPrice === "number" && item.finalPrice > 0 ? item.finalPrice : null;
+      const discountAmount = typeof item.couponPrice === "number" && item.couponPrice > 0 ? item.couponPrice : null;
+      return {
+        capturedAt: new Date(`${item.date}T12:00:00Z`).toISOString(),
+        kind: "coupon" as const,
+        label: item.type === "P" ? "百分比 Coupon" : item.type === "M" ? "金额 Coupon" : "Coupon",
+        listPrice,
+        promotionPrice,
+        discountAmount,
+        discountPercent: listPrice !== null && discountAmount !== null ? Math.round((discountAmount / listPrice) * 10000) / 100 : null,
+      };
+    })
+    .sort((a, b) => Date.parse(b.capturedAt) - Date.parse(a.capturedAt));
+}
+
+function dealHistory(value: unknown): PromotionHistoryPoint[] {
+  if (!Array.isArray(value)) return [];
+  return (value as TrendValue[])
+    .filter((item) => typeof item.timePoint === "number" && typeof item.value === "number" && item.value > 0)
+    .map((item) => ({
+      capturedAt: new Date(item.timePoint as number).toISOString(),
+      kind: "deal" as const,
+      label: "Amazon Deal",
+      listPrice: null,
+      promotionPrice: item.value as number,
+      discountAmount: null,
+      discountPercent: null,
+    }))
+    .sort((a, b) => Date.parse(b.capturedAt) - Date.parse(a.capturedAt));
+}
+
+function mergePromotionHistory(couponTrends: unknown, dealPrices: unknown) {
+  const seen = new Set<string>();
+  return [...couponHistory(couponTrends), ...dealHistory(dealPrices)]
+    .sort((a, b) => Date.parse(b.capturedAt) - Date.parse(a.capturedAt))
+    .filter((item) => {
+      const key = `${item.kind}:${item.capturedAt.slice(0, 10)}:${item.promotionPrice}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .slice(0, 120);
+}
+
+function mergeHistorySeries(data: AnyRecord, couponTrends: unknown = []) {
+  const byDay = new Map<string, PlatformHistoryPoint & { timestamp: number; price?: number | null }>();
   const apply = (series: TrendValue[] | undefined, field: "price" | "dealPrice" | "listPrice" | "buyBoxPrice" | "bsr" | "rating" | "reviews") => {
     for (const item of series ?? []) {
       if (typeof item.timePoint !== "number" || typeof item.value !== "number" || !Number.isFinite(item.value)) continue;
@@ -130,8 +181,10 @@ function mergeHistorySeries(data: AnyRecord) {
         capturedAt: new Date(item.timePoint).toISOString(),
         marketPrice: null,
         listPrice: null,
-      buyBoxPrice: null,
-      dealPrice: null,
+        buyBoxPrice: null,
+        dealPrice: null,
+        couponPrice: null,
+        promotionPrice: null,
         bsr: null,
         rating: null,
         reviews: null,
@@ -153,6 +206,28 @@ function mergeHistorySeries(data: AnyRecord) {
   apply(data.rating, "rating");
   apply(data.reviews, "reviews");
 
+  for (const item of couponHistory(couponTrends)) {
+    if (item.promotionPrice === null) continue;
+    const timestamp = Date.parse(item.capturedAt);
+    const day = item.capturedAt.slice(0, 10);
+    const current = byDay.get(day) ?? {
+      timestamp,
+      capturedAt: item.capturedAt,
+      marketPrice: null,
+      listPrice: null,
+      buyBoxPrice: null,
+      dealPrice: null,
+      couponPrice: null,
+      promotionPrice: null,
+      bsr: null,
+      rating: null,
+      reviews: null,
+    };
+    current.couponPrice = item.promotionPrice;
+    current.listPrice = current.listPrice ?? item.listPrice;
+    byDay.set(day, current);
+  }
+
   return [...byDay.values()]
     .sort((a, b) => a.timestamp - b.timestamp)
     .map((point) => ({
@@ -161,6 +236,8 @@ function mergeHistorySeries(data: AnyRecord) {
       listPrice: point.listPrice,
       buyBoxPrice: point.buyBoxPrice,
       dealPrice: point.dealPrice ?? null,
+      couponPrice: point.couponPrice ?? null,
+      promotionPrice: point.dealPrice ?? point.couponPrice ?? null,
       bsr: point.bsr,
       rating: point.rating,
       reviews: point.reviews,
@@ -176,23 +253,31 @@ export async function queryAsinHistory(marketplace: string, asin: string, rangeD
   const startTimestamp = endTimestamp - rangeDays * 86400000;
 
   try {
-    const result = await client.callTool({
-      name: "keepa_info",
-      arguments: { asin, marketplace, dailyLatest: true, startTimestamp, endTimestamp },
-    });
-    const data = (toolData(result) as AnyRecord) ?? {};
+    const [keepaResult, detailResult] = await Promise.all([
+      client.callTool({ name: "keepa_info", arguments: { asin, marketplace, dailyLatest: true, startTimestamp, endTimestamp } }),
+      client.callTool({ name: "asin_detail_with_coupon_trend", arguments: { asin, marketplace } }),
+    ]);
+    const data = (toolData(keepaResult) as AnyRecord) ?? {};
+    const detail = (toolData(detailResult) as AnyRecord) ?? {};
+    const detailAsin = detail.asin ?? {};
+    const inRange = (capturedAt: string) => {
+      const timestamp = Date.parse(capturedAt);
+      return timestamp >= startTimestamp && timestamp <= endTimestamp;
+    };
+    const promotionHistory = mergePromotionHistory(detail.couponTrends, data.dealPrice).filter((item) => inRange(item.capturedAt));
     return {
       marketplace,
       asin,
-      title: data.title ?? asin,
-      brand: data.brand ?? "",
-      imageUrl: data.imageUrl ?? null,
+      title: detailAsin.title ?? data.title ?? asin,
+      brand: detailAsin.brand ?? data.brand ?? "",
+      imageUrl: data.imageUrl ?? detailAsin.imageUrl ?? null,
       amazonUrl: data.asinUrl ?? `https://www.${AMAZON_DOMAINS[marketplace]}/dp/${asin}`,
       currency: CURRENCIES[marketplace] ?? "USD",
       rangeDays,
-      points: mergeHistorySeries(data),
+      points: mergeHistorySeries(data, detail.couponTrends).filter((item) => inRange(item.capturedAt)),
+      promotionHistory,
       source: "SellerSprite Keepa",
-      sourceNote: "平台历史价格使用 Keepa 售价、Buy Box 与 Deal 价格轨迹，不等同于本产品每日按 Coupon 换算的折后价；销量估算和流量仅在加入监控后由每日快照累积。",
+      sourceNote: "平台历史合并 SellerSprite Coupon 记录与 Keepa 售价、Buy Box、Deal 轨迹；历史促销不代表当前仍在活动。销量估算和流量仅在加入监控后由每日快照累积。",
     };
   } finally {
     await client.close();
@@ -232,6 +317,7 @@ export async function analyzeAsin(marketplace: string, asin: string): Promise<An
     const relationStat = (toolData(relationResult) as AnyRecord) ?? {};
     const sales = (toolData(salesResult) as AnyRecord) ?? {};
     const media = (optionalToolData(mediaResult) as AnyRecord) ?? {};
+    const promotionHistory = mergePromotionHistory(detail?.couponTrends, media.dealPrice);
     const candidateAsins = candidates.slice(0, 6).map((item) => item.asin).filter(Boolean);
     const lookupResult = await call("competitor_lookup", { request: { asins: [asin, ...candidateAsins], marketplace, variation: "Y", page: 1, size: 10 } });
     const lookup = (toolData(lookupResult) as AnyRecord)?.items ?? [];
@@ -288,7 +374,7 @@ export async function analyzeAsin(marketplace: string, asin: string): Promise<An
     }
     if (!conclusions.length) conclusions.push({ severity: "info", title: "已建立首份基线", body: "本次没有历史快照，需等下一次同口径采集后才能生成变化告警。" });
 
-    const dataNotes = ["月销量、销量增长率和销售额为 SellerSprite 估算值，不是 Amazon 后台实际订单。", "Coupon 来自商品详情；Amazon Deal 信号来自近 36 小时 Keepa dealPrice，不将历史 Deal 自动视为当前活动。"];
+    const dataNotes = ["月销量、销量增长率和销售额为 SellerSprite 估算值，不是 Amazon 后台实际订单。", `Coupon 来自商品详情，历史促销共返回 ${promotionHistory.length} 条；Amazon Deal 当前信号来自近 36 小时 Keepa dealPrice，不将历史活动视为当前活动。`];
     dataNotes.push(Object.keys(media).length
       ? "Listing 标题、五点和属性来自详情接口，图片组来自 Keepa；按每日快照和上一自然日比较。"
       : "Listing 标题、五点和属性已留存；本次 Keepa 图片组不可用，仅保存详情主图。");
@@ -342,6 +428,7 @@ export async function analyzeAsin(marketplace: string, asin: string): Promise<An
         changed: false,
         summaries: ["已建立促销基线"],
       },
+      promotionHistory,
       traffic: {
         naturalKeywords,
         adKeywords,

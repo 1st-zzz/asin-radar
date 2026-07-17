@@ -44,6 +44,16 @@ export type PromotionChange = {
   summaries: string[];
 };
 
+export type PromotionHistoryPoint = {
+  capturedAt: string;
+  kind: "coupon" | "deal";
+  label: string;
+  listPrice: number | null;
+  promotionPrice: number | null;
+  discountAmount: number | null;
+  discountPercent: number | null;
+};
+
 export type ListingSnapshot = {
   title: string;
   bullets: string[];
@@ -96,6 +106,7 @@ export type AnalysisResult = {
   };
   promotion: PromotionSnapshot;
   promotionChanges: PromotionChange;
+  promotionHistory: PromotionHistoryPoint[];
   traffic: {
     naturalKeywords: number | null;
     adKeywords: number | null;
@@ -139,6 +150,8 @@ export type PlatformHistoryPoint = {
   listPrice: number | null;
   buyBoxPrice: number | null;
   dealPrice: number | null;
+  couponPrice: number | null;
+  promotionPrice: number | null;
   bsr: number | null;
   rating: number | null;
   reviews: number | null;
@@ -154,6 +167,7 @@ export type PlatformHistoryResult = {
   currency: string;
   rangeDays: number;
   points: PlatformHistoryPoint[];
+  promotionHistory: PromotionHistoryPoint[];
   source: "SellerSprite Keepa";
   sourceNote: string;
 };
@@ -211,6 +225,9 @@ export const demoResult: AnalysisResult = {
     changed: false,
     summaries: ["已建立促销基线"],
   },
+  promotionHistory: [
+    { capturedAt: "2026-04-02T12:00:00.000Z", kind: "coupon", label: "金额 Coupon", listPrice: 31.99, promotionPrice: 26.99, discountAmount: 5, discountPercent: 15.63 },
+  ],
   traffic: {
     naturalKeywords: 130,
     adKeywords: 4,

@@ -117,6 +117,7 @@ export function hydrateResult(input: Partial<AnalysisResult>): AnalysisResult {
       dealEndAt: null,
     },
     promotionChanges: input.promotionChanges ?? baselinePromotionChange(),
+    promotionHistory: input.promotionHistory ?? [],
     listing: input.listing ?? {
       title: input.title ?? "",
       bullets: [],

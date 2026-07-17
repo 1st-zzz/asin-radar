@@ -105,6 +105,7 @@ table { border-collapse: collapse; }
 .promotion-badge { display: inline-flex; align-items: center; min-height: 20px; padding: 3px 7px; border-radius: 5px; background: #f3f4f6; color: var(--muted); font-size: 8px; font-weight: 700; white-space: nowrap; }
 .promotion-badge.deal { background: #fef2f2; color: #b42318; }
 .promotion-badge.coupon { background: var(--orange-soft); color: var(--orange); }
+.promotion-badge.history { background: #eef2ff; color: #4338ca; }
 .promotion-badge.quiet { background: #f3f4f6; color: var(--muted); }
 .market-pill { width: 30px; height: 24px; display: grid; place-items: center; border-radius: 5px; background: var(--primary-soft); color: var(--primary-dark); font: 700 8px var(--font-geist-mono), monospace; }
 .delta { display: inline-flex; min-height: 18px; align-items: center; padding: 2px 5px; border-radius: 4px; background: #f3f4f6; color: var(--muted); font-size: 8px; font-weight: 650; white-space: nowrap; }
@@ -133,6 +134,7 @@ table { border-collapse: collapse; }
 .kpi-strip small { min-height: 20px; line-height: 1.4; }
 .promotion-value.deal { color: var(--red); }
 .promotion-value.coupon { color: var(--orange); }
+.promotion-value.history { color: #4338ca; }
 .promotion-value.quiet { color: #4b5563; }
 .promotion-panel { padding: 14px 16px; border-bottom: 1px solid var(--border); background: #fffdf9; }
 .promotion-heading { display: flex; align-items: end; justify-content: space-between; gap: 12px; }
@@ -144,6 +146,17 @@ table { border-collapse: collapse; }
 .promotion-grid .delta { display: inline-flex; margin-bottom: 4px; }
 .promotion-grid small { min-height: 24px; line-height: 1.45; }
 .promotion-grid .promotion-change { background: var(--surface-soft); }
+.promotion-history { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border); }
+.promotion-history-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.promotion-history-heading > div { display: flex; align-items: baseline; gap: 8px; }
+.promotion-history-heading strong { font-size: 11px; }
+.promotion-history-heading small, .promotion-history-heading > span { color: var(--muted); font-size: 8px; }
+.promotion-history-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; margin-top: 9px; }
+.promotion-history-row { display: grid; grid-template-columns: 48px auto auto 1fr; align-items: center; gap: 7px; min-width: 0; padding: 8px 9px; border: 1px solid var(--border); border-radius: 6px; background: #fff; }
+.promotion-history-row time { color: var(--muted); font-size: 8px; }
+.promotion-history-row strong { font-size: 10px; white-space: nowrap; }
+.promotion-history-row small { overflow: hidden; color: var(--muted); font-size: 8px; text-align: right; text-overflow: ellipsis; white-space: nowrap; }
+.promotion-history-empty { margin-top: 9px; padding: 12px; border: 1px dashed var(--border); border-radius: 6px; color: var(--muted); font-size: 9px; text-align: center; }
 .listing-panel { padding: 14px 16px; border-bottom: 1px solid var(--border); background: #fcfdff; }
 .listing-panel-heading { display: flex; align-items: end; justify-content: space-between; gap: 12px; }
 .listing-panel-heading h3 { margin: 0; font-size: 14px; font-weight: 650; }
@@ -232,6 +245,7 @@ table { border-collapse: collapse; }
   .detail-body { grid-template-columns: 1fr; }
   .listing-grid { grid-template-columns: 1fr; }
   .promotion-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .promotion-history-list { grid-template-columns: 1fr; }
   .chart-panel { border-right: 0; border-bottom: 1px solid var(--border); }
 }
 
@@ -270,6 +284,8 @@ table { border-collapse: collapse; }
   .history-product-info h2 { white-space: normal; }
   .listing-current { grid-template-columns: 1fr; }
   .promotion-grid { grid-template-columns: 1fr; }
+  .promotion-history-row { grid-template-columns: 44px auto auto; }
+  .promotion-history-row small { grid-column: 1 / -1; text-align: left; }
   .listing-images { overflow-x: auto; }
   .start-monitoring { align-items: flex-start; flex-direction: column; }
 }
