@@ -21,8 +21,28 @@ export type HistoryPoint = {
   paidShare: number | null;
 };
 
+export type ListingSnapshot = {
+  title: string;
+  bullets: string[];
+  attributesText: string | null;
+  imageUrls: string[];
+};
+
+export type ListingChange = {
+  baseline: boolean;
+  changed: boolean;
+  titleChanged: boolean;
+  bulletsChanged: boolean;
+  attributesChanged: boolean;
+  imagesAdded: string[];
+  imagesRemoved: string[];
+  imageOrderChanged: boolean;
+  summaries: string[];
+};
+
 export type AnalysisResult = {
   sourceVersion: number;
+  listingVersion: number;
   marketplace: string;
   asin: string;
   capturedAt: string;
@@ -61,6 +81,8 @@ export type AnalysisResult = {
   }>;
   actions: string[];
   dataNotes: string[];
+  listing: ListingSnapshot;
+  listingChanges: ListingChange;
   history: HistoryPoint[];
   changes: {
     effectivePrice: MetricChange;
@@ -105,6 +127,7 @@ export type HistoryQueryResponse = {
 
 export const demoResult: AnalysisResult = {
   sourceVersion: 2,
+  listingVersion: 1,
   marketplace: "DE",
   asin: "B0DPDKLHYM",
   capturedAt: "2026-07-16T22:31:59+08:00",
@@ -153,6 +176,23 @@ export const demoResult: AnalysisResult = {
     "卖家精灵详情、批量对比和 Keepa 路径对当前价格及 BSR 的返回存在差异。",
     "月销量和销售额为卖家精灵估算值，不是 Amazon 后台实际订单。",
   ],
+  listing: {
+    title: "Titan Schneidebrett Set 3 Stück – S316 Edelstahl",
+    bullets: ["Doppelseitiges Schneidebrett", "S316 Edelstahl und Titanbeschichtung"],
+    attributesText: "Material: Edelstahl; Anzahl: 3",
+    imageUrls: [],
+  },
+  listingChanges: {
+    baseline: true,
+    changed: false,
+    titleChanged: false,
+    bulletsChanged: false,
+    attributesChanged: false,
+    imagesAdded: [],
+    imagesRemoved: [],
+    imageOrderChanged: false,
+    summaries: ["已建立 Listing 基线"],
+  },
   history: [],
   changes: {
     effectivePrice: { current: 26.99, previous: null, absolute: null, percent: null, direction: "new", favorable: null },

@@ -111,10 +111,15 @@ function PlatformChart({ response, metric }: { response: HistoryQueryResponse; m
 
 function SnapshotDetail({ result }: { result: AnalysisResult }) {
   const [metric, setMetric] = useState<SnapshotMetric>("effectivePrice");
+  const listingStatus = result.listingChanges.baseline
+    ? "已建基线"
+    : result.listingChanges.changed
+      ? `${result.listingChanges.summaries.length} 项变动`
+      : "无变动";
   return (
     <article className="product-card detail-card">
       <div className="detail-heading">
-        <div><div className="product-code"><span>{result.marketplace}</span>{result.asin}</div><h2>{result.title}</h2><p>{result.brand || "品牌待识别"} · 最近抓取 {formatDate(result.capturedAt, true)}</p></div>
+        <div className="detail-title-block"><div className="product-code"><span>{result.marketplace}</span>{result.asin}</div><h2 title={result.title}>{result.title}</h2><p>{result.brand || "品牌待识别"} · 最近抓取 {formatDate(result.capturedAt, true)}</p></div>
         <a href={result.amazonUrl} target="_blank" rel="noreferrer" className="ghost-button">Amazon 商品页 ↗</a>
       </div>
       <div className="kpi-strip">
@@ -124,6 +129,33 @@ function SnapshotDetail({ result }: { result: AnalysisResult }) {
         <div><span>自然关键词</span><strong>{formatNumber(result.traffic.naturalKeywords)}</strong><DeltaBadge change={result.changes.naturalKeywords} /><small>广告词 {formatNumber(result.traffic.adKeywords)}</small></div>
         <div><span>免费流量</span><strong>{formatNumber(result.traffic.freeShare, 1)}%</strong><DeltaBadge change={result.changes.freeShare} mode="absolute" suffix="pp" /><small>付费 {formatNumber(result.traffic.paidShare, 1)}%</small></div>
       </div>
+      <section className="listing-panel">
+        <div className="listing-panel-heading">
+          <div><span className="section-label">Listing Watch</span><h3>图片与文案变动</h3></div>
+          <span className={`listing-status ${result.listingChanges.changed ? "changed" : result.listingChanges.baseline ? "baseline" : "stable"}`}>{listingStatus}</span>
+        </div>
+        <div className="listing-grid">
+          <div className="listing-current">
+            <div className="listing-images">
+              {result.listing.imageUrls.slice(0, 6).map((url, index) => <img src={url} alt={`Listing 图片 ${index + 1}`} loading="lazy" key={url} />)}
+              {!result.listing.imageUrls.length && <span className="listing-image-empty">暂无图片</span>}
+            </div>
+            <div className="listing-copy">
+              <span>当前版本 · {result.listing.imageUrls.length} 张图片 · {result.listing.bullets.length} 条五点</span>
+              <strong title={result.listing.title}>{result.listing.title || "标题暂缺"}</strong>
+              <small>{result.listing.attributesText ? "属性文案已留存" : "属性文案暂缺"}</small>
+            </div>
+          </div>
+          <div className="listing-change-box">
+            <strong>{result.listingChanges.baseline ? "从今天开始记录" : "相较上一自然日"}</strong>
+            {result.listingChanges.baseline
+              ? <p>已保存当前图片、标题、五点和属性文案；下一自然日同步后开始显示差异。</p>
+              : result.listingChanges.changed
+                ? <ul>{result.listingChanges.summaries.map((summary) => <li key={summary}>{summary}</li>)}</ul>
+                : <p>图片、标题、五点和属性文案均未发现变化。</p>}
+          </div>
+        </div>
+      </section>
       <div className="detail-body">
         <section className="chart-panel">
           <div className="panel-heading"><div><span className="section-label">留存快照</span><h3>每日变化趋势</h3></div><span>{result.history.length} 天记录</span></div>
@@ -168,7 +200,7 @@ export default function Home() {
   }, []);
 
   const selected = useMemo(() => results.find((item) => `${item.marketplace}:${item.asin}` === selectedKey) ?? results[0], [results, selectedKey]);
-  const changedCount = results.filter((item) => Object.values(item.changes).some((change) => change.previous !== null && change.direction !== "flat")).length;
+  const changedCount = results.filter((item) => item.listingChanges.changed || Object.values(item.changes).some((change) => change.previous !== null && change.direction !== "flat")).length;
   const latestCapture = results.reduce<string | null>((latest, item) => !latest || Date.parse(item.capturedAt) > Date.parse(latest) ? item.capturedAt : latest, null);
 
   async function handleSync(event: FormEvent) {
@@ -273,7 +305,7 @@ export default function Home() {
 
             <section className="product-card watchlist-card">
               <div className="card-heading"><div><span className="section-label">Watchlist</span><h2>监控列表</h2></div><span>{results.length} 个商品</span></div>
-              <div className="table-scroll"><table className="watch-table"><thead><tr><th>商品</th><th>折后价</th><th>评分</th><th>BSR</th><th>核心流量</th><th>最近同步</th><th /></tr></thead><tbody>{results.map((item) => { const key = `${item.marketplace}:${item.asin}`; return <tr key={key} className={selectedKey === key ? "selected" : ""} onClick={() => setSelectedKey(key)}><td><span className="market-pill">{item.marketplace}</span><span><strong>{item.asin}</strong><small>{item.brand || "品牌待识别"}</small></span></td><td><strong>{formatMoney(item.metrics.effectivePrice, item.currency)}</strong><DeltaBadge change={item.changes.effectivePrice} /></td><td><strong>{formatNumber(item.metrics.rating, 1)}</strong><DeltaBadge change={item.changes.rating} mode="absolute" /></td><td><strong>{formatNumber(item.metrics.bsr)}</strong><DeltaBadge change={item.changes.bsr} /></td><td><strong>{formatNumber(item.traffic.naturalKeywords)} 自然词</strong><small>免费 {formatNumber(item.traffic.freeShare, 1)}%</small></td><td><strong>{formatDate(item.capturedAt)}</strong><small>{item.history.length} 天记录</small></td><td><button type="button" className="history-link" onClick={(event) => { event.stopPropagation(); openHistory(item); }}>查历史</button></td></tr>; })}{!results.length && <tr><td className="empty-cell" colSpan={7}>还没有监控对象。上方输入 ASIN，建立第一份基线。</td></tr>}</tbody></table></div>
+              <div className="table-scroll"><table className="watch-table"><thead><tr><th>商品</th><th>折后价</th><th>评分</th><th>BSR</th><th>核心流量</th><th>Listing</th><th>最近同步</th><th /></tr></thead><tbody>{results.map((item) => { const key = `${item.marketplace}:${item.asin}`; return <tr key={key} className={selectedKey === key ? "selected" : ""} onClick={() => setSelectedKey(key)}><td><span className="market-pill">{item.marketplace}</span><span><strong>{item.asin}</strong><small>{item.brand || "品牌待识别"}</small></span></td><td><strong>{formatMoney(item.metrics.effectivePrice, item.currency)}</strong><DeltaBadge change={item.changes.effectivePrice} /></td><td><strong>{formatNumber(item.metrics.rating, 1)}</strong><DeltaBadge change={item.changes.rating} mode="absolute" /></td><td><strong>{formatNumber(item.metrics.bsr)}</strong><DeltaBadge change={item.changes.bsr} /></td><td><strong>{formatNumber(item.traffic.naturalKeywords)} 自然词</strong><small>免费 {formatNumber(item.traffic.freeShare, 1)}%</small></td><td><strong className={item.listingChanges.changed ? "listing-table-changed" : ""}>{item.listingChanges.baseline ? "已建基线" : item.listingChanges.changed ? `${item.listingChanges.summaries.length} 项变动` : "无变动"}</strong><small>{item.listing.imageUrls.length} 图 · {item.listing.bullets.length} 条五点</small></td><td><strong>{formatDate(item.capturedAt)}</strong><small>{item.history.length} 天记录</small></td><td><button type="button" className="history-link" onClick={(event) => { event.stopPropagation(); openHistory(item); }}>查历史</button></td></tr>; })}{!results.length && <tr><td className="empty-cell" colSpan={8}>还没有监控对象。上方输入 ASIN，建立第一份基线。</td></tr>}</tbody></table></div>
             </section>
             {selected && <SnapshotDetail result={selected} />}
           </div>

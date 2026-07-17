@@ -1,7 +1,65 @@
-import type { AnalysisResult, HistoryPoint, MetricChange, Severity } from "./demo-data";
+import type { AnalysisResult, HistoryPoint, ListingChange, ListingSnapshot, MetricChange, Severity } from "./demo-data";
 
 function emptyChange(current: number | null): MetricChange {
   return { current, previous: null, absolute: null, percent: null, direction: "new", favorable: null };
+}
+
+function baselineListingChange(): ListingChange {
+  return {
+    baseline: true,
+    changed: false,
+    titleChanged: false,
+    bulletsChanged: false,
+    attributesChanged: false,
+    imagesAdded: [],
+    imagesRemoved: [],
+    imageOrderChanged: false,
+    summaries: ["已建立 Listing 基线"],
+  };
+}
+
+function normalizeText(value: string | null | undefined) {
+  return (value ?? "").replace(/\s+/g, " ").trim();
+}
+
+function normalizeList(values: string[] | undefined) {
+  return (values ?? []).map(normalizeText).filter(Boolean);
+}
+
+function compareListing(current: ListingSnapshot, previous: ListingSnapshot | null): ListingChange {
+  if (!previous) return baselineListingChange();
+  const currentBullets = normalizeList(current.bullets);
+  const previousBullets = normalizeList(previous.bullets);
+  const currentImages = [...new Set(current.imageUrls.filter(Boolean))];
+  const previousImages = [...new Set(previous.imageUrls.filter(Boolean))];
+  const previousImageSet = new Set(previousImages);
+  const currentImageSet = new Set(currentImages);
+  const titleChanged = normalizeText(current.title) !== normalizeText(previous.title);
+  const bulletsChanged = JSON.stringify(currentBullets) !== JSON.stringify(previousBullets);
+  const attributesChanged = normalizeText(current.attributesText) !== normalizeText(previous.attributesText);
+  const imagesAdded = currentImages.filter((url) => !previousImageSet.has(url));
+  const imagesRemoved = previousImages.filter((url) => !currentImageSet.has(url));
+  const sameImageSet = imagesAdded.length === 0 && imagesRemoved.length === 0;
+  const imageOrderChanged = sameImageSet && JSON.stringify(currentImages) !== JSON.stringify(previousImages);
+  const summaries = [
+    ...(titleChanged ? ["标题已修改"] : []),
+    ...(bulletsChanged ? ["五点文案已修改"] : []),
+    ...(attributesChanged ? ["属性文案已修改"] : []),
+    ...(imagesAdded.length ? [`新增 ${imagesAdded.length} 张图片`] : []),
+    ...(imagesRemoved.length ? [`移除 ${imagesRemoved.length} 张图片`] : []),
+    ...(imageOrderChanged ? ["图片顺序已调整"] : []),
+  ];
+  return {
+    baseline: false,
+    changed: summaries.length > 0,
+    titleChanged,
+    bulletsChanged,
+    attributesChanged,
+    imagesAdded,
+    imagesRemoved,
+    imageOrderChanged,
+    summaries,
+  };
 }
 
 export function hydrateResult(input: Partial<AnalysisResult>): AnalysisResult {
@@ -12,6 +70,7 @@ export function hydrateResult(input: Partial<AnalysisResult>): AnalysisResult {
   return {
     ...result,
     sourceVersion: input.sourceVersion ?? 1,
+    listingVersion: input.listingVersion ?? 0,
     metrics: {
       ...metrics,
       price: effectivePrice,
@@ -20,6 +79,13 @@ export function hydrateResult(input: Partial<AnalysisResult>): AnalysisResult {
       coupon: metrics.coupon ?? null,
       priceNote: metrics.priceNote ?? "历史口径",
     },
+    listing: input.listing ?? {
+      title: input.title ?? "",
+      bullets: [],
+      attributesText: null,
+      imageUrls: [],
+    },
+    listingChanges: input.listingChanges ?? baselineListingChange(),
     history: [],
     changes: {
       effectivePrice: emptyChange(effectivePrice),
@@ -128,13 +194,27 @@ export function decorateWithHistory(currentInput: AnalysisResult, previousInputs
   const deltaConclusions = prior
     ? changeConclusion(changes)
     : [{ severity: "info" as const, title: "已建立每日监控基线", body: "下一自然日再次抓取后，将显示折后价、评分、BSR 与核心流量变化。" }];
+  const currentDay = current.capturedAt.slice(0, 10);
+  const previousListing = previousInputs
+    .map(hydrateResult)
+    .filter((item) => item.listingVersion === current.listingVersion && item.listingVersion > 0 && item.capturedAt.slice(0, 10) !== currentDay)
+    .sort((a, b) => Date.parse(b.capturedAt) - Date.parse(a.capturedAt))[0] ?? null;
+  const listingChanges = compareListing(current.listing, previousListing?.listing ?? null);
+  const listingConclusions = listingChanges.changed
+    ? [{
+        severity: listingChanges.titleChanged ? "high" as const : "medium" as const,
+        title: `Listing 发生 ${listingChanges.summaries.length} 项变动`,
+        body: listingChanges.summaries.join("；") + "。",
+      }]
+    : [];
 
   return {
     ...current,
     history,
     changes,
+    listingChanges,
     comparisonCapturedAt: prior?.capturedAt ?? null,
-    conclusions: [...deltaConclusions, ...current.conclusions],
+    conclusions: [...listingConclusions, ...deltaConclusions, ...current.conclusions],
   };
 }
 

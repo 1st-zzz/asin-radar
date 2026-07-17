@@ -7,6 +7,8 @@ const CURRENCIES: Record<string, string> = { US: "USD", JP: "JPY", UK: "GBP", DE
 const AMAZON_DOMAINS: Record<string, string> = { US: "amazon.com", JP: "amazon.co.jp", UK: "amazon.co.uk", DE: "amazon.de", FR: "amazon.fr", IT: "amazon.it", ES: "amazon.es", CA: "amazon.ca", IN: "amazon.in", MX: "amazon.com.mx", BR: "amazon.com.br", AU: "amazon.com.au", AE: "amazon.ae" };
 
 type ToolResult = { content?: Array<{ type: string; text?: string }> };
+// SellerSprite tools expose heterogeneous payloads that are validated at each read site.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AnyRecord = Record<string, any>;
 
 function runtimeConfig() {
@@ -31,6 +33,14 @@ function toolData(result: unknown) {
   const parsed = JSON.parse(text) as { code?: string; message?: string; data?: unknown };
   if (parsed.code && parsed.code !== "OK") throw new Error(parsed.message || "卖家精灵接口返回错误");
   return parsed.data as AnyRecord | AnyRecord[] | null;
+}
+
+function optionalToolData(result: unknown) {
+  try {
+    return toolData(result);
+  } catch {
+    return null;
+  }
 }
 
 function median(values: Array<number | null | undefined>) {
@@ -87,6 +97,15 @@ function effectivePrice(price: number | null, couponValue: unknown) {
 
 function emptyChange(current: number | null) {
   return { current, previous: null, absolute: null, percent: null, direction: "new" as const, favorable: null };
+}
+
+function stringArray(value: unknown) {
+  if (!Array.isArray(value)) return [];
+  return value.filter((item): item is string => typeof item === "string" && item.trim().length > 0).map((item) => item.trim());
+}
+
+function uniqueStrings(values: string[]) {
+  return [...new Set(values.filter(Boolean))];
 }
 
 type TrendValue = { timePoint?: number; value?: number };
@@ -177,12 +196,21 @@ export async function analyzeAsin(marketplace: string, asin: string): Promise<An
 
   try {
     const call = (name: string, args: AnyRecord) => client.callTool({ name, arguments: args });
-    const [detailResult, competitorResult, keywordResult, relationResult, salesResult] = await Promise.all([
+    const mediaEnd = Date.now();
+    const [detailResult, competitorResult, keywordResult, relationResult, salesResult, mediaResult] = await Promise.all([
       call("asin_detail_with_coupon_trend", { asin, marketplace }),
       call("asin_competitor", { asin, marketplace, size: 8 }),
       call("traffic_keyword_stat", { asin, marketplace }),
       call("traffic_listing_stat", { asin, marketplace }),
       call("asin_sales_trend", { asin, marketplace }),
+      call("keepa_info", {
+        asin,
+        marketplace,
+        dailyLatest: true,
+        startTimestamp: mediaEnd - 2 * 86400000,
+        endTimestamp: mediaEnd,
+        returnFields: "asin,title,brand,imageUrl,zoomImageUrl,imageUrls",
+      }).catch(() => null),
     ]);
 
     const detail = toolData(detailResult) as AnyRecord;
@@ -191,6 +219,7 @@ export async function analyzeAsin(marketplace: string, asin: string): Promise<An
     const keywordStat = (toolData(keywordResult) as AnyRecord) ?? {};
     const relationStat = (toolData(relationResult) as AnyRecord) ?? {};
     const sales = (toolData(salesResult) as AnyRecord) ?? {};
+    const media = (optionalToolData(mediaResult) as AnyRecord) ?? {};
     const candidateAsins = candidates.slice(0, 6).map((item) => item.asin).filter(Boolean);
     const lookupResult = await call("competitor_lookup", { request: { asins: [asin, ...candidateAsins], marketplace, variation: "Y", page: 1, size: 10 } });
     const lookup = (toolData(lookupResult) as AnyRecord)?.items ?? [];
@@ -209,6 +238,17 @@ export async function analyzeAsin(marketplace: string, asin: string): Promise<An
     const paidShare = percent(paidRelations, relations);
     const naturalKeywords = keywordStat?.badgeCount?.ns ?? null;
     const adKeywords = keywordStat?.badgeCount?.ad ?? null;
+    const listingTitle = detailAsin.title ?? media.title ?? seed.title ?? asin;
+    const listingBullets = stringArray(detailAsin.features);
+    const listingAttributes = typeof detailAsin.overviews === "string"
+      ? detailAsin.overviews
+      : detailAsin.overviews
+        ? JSON.stringify(detailAsin.overviews)
+        : null;
+    const galleryImages = stringArray(media.imageUrls);
+    const fallbackImages = [media.zoomImageUrl, media.imageUrl, detailAsin.zoomImageUrl, detailAsin.imageUrl]
+      .filter((url): url is string => typeof url === "string" && url.length > 0);
+    const listingImages = uniqueStrings(galleryImages.length ? galleryImages : fallbackImages);
     const conclusions: Array<{ severity: Severity; title: string; body: string }> = [];
 
     if (freeShare !== null && freeShare >= 75) conclusions.push({ severity: "info", title: "自然流量结构较健康", body: `免费关联占 ${freeShare.toFixed(1)}%，当前不是明显的广告堆量型。` });
@@ -230,14 +270,18 @@ export async function analyzeAsin(marketplace: string, asin: string): Promise<An
     if (!conclusions.length) conclusions.push({ severity: "info", title: "已建立首份基线", body: "本次没有历史快照，需等下一次同口径采集后才能生成变化告警。" });
 
     const dataNotes = ["月销量和销售额为 SellerSprite 估算值，不是 Amazon 后台实际订单。"];
+    dataNotes.push(Object.keys(media).length
+      ? "Listing 标题、五点和属性来自详情接口，图片组来自 Keepa；按每日快照和上一自然日比较。"
+      : "Listing 标题、五点和属性已留存；本次 Keepa 图片组不可用，仅保存详情主图。");
     if (priceConflict) dataNotes.unshift(`详情接口与批量对比接口价格分别为 ${detailPrice} 和 ${lookupPrice}；每日折后价固定使用详情接口，批量价仅用于竞品横向对比。`);
 
     return {
       sourceVersion: 2,
+      listingVersion: 1,
       marketplace,
       asin,
       capturedAt: new Date().toISOString(),
-      title: detailAsin.title ?? seed.title ?? asin,
+      title: listingTitle,
       brand: detailAsin.brand ?? seed.brand ?? "",
       amazonUrl: `https://www.${AMAZON_DOMAINS[marketplace]}/dp/${asin}`,
       currency: CURRENCIES[marketplace] ?? "USD",
@@ -269,6 +313,23 @@ export async function analyzeAsin(marketplace: string, asin: string): Promise<An
         "明天按同一接口复查折后价、BSR、评分和核心流量，形成首个日环比。",
       ],
       dataNotes,
+      listing: {
+        title: listingTitle,
+        bullets: listingBullets,
+        attributesText: listingAttributes,
+        imageUrls: listingImages,
+      },
+      listingChanges: {
+        baseline: true,
+        changed: false,
+        titleChanged: false,
+        bulletsChanged: false,
+        attributesChanged: false,
+        imagesAdded: [],
+        imagesRemoved: [],
+        imageOrderChanged: false,
+        summaries: ["已建立 Listing 基线"],
+      },
       history: [],
       changes: {
         effectivePrice: emptyChange(pricing.value),
