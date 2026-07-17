@@ -4,16 +4,17 @@ import { monitorRuns } from "../../../db/schema";
 import type { AnalysisResult } from "../../../lib/demo-data";
 import { decorateWithHistory, hydrateResult } from "../../../lib/history";
 import { queryAsinHistory } from "../../../lib/sellersprite";
+import { getChatGPTUserId } from "../../chatgpt-auth";
 
 const MARKETPLACES = new Set(["US", "JP", "UK", "DE", "FR", "IT", "ES", "CA", "IN", "MX", "BR", "AU", "AE"]);
 const ALLOWED_RANGES = new Set([30, 90, 180, 365]);
 
-async function retainedHistory(marketplace: string, asin: string) {
+async function retainedHistory(userId: string, marketplace: string, asin: string) {
   try {
     const rows = await getDb()
       .select()
       .from(monitorRuns)
-      .where(and(eq(monitorRuns.marketplace, marketplace), eq(monitorRuns.asin, asin)))
+      .where(and(eq(monitorRuns.userId, userId), eq(monitorRuns.marketplace, marketplace), eq(monitorRuns.asin, asin)))
       .orderBy(desc(monitorRuns.capturedAt))
       .limit(365);
     const results = rows.map((row) => hydrateResult(JSON.parse(row.resultJson) as AnalysisResult));
@@ -24,6 +25,9 @@ async function retainedHistory(marketplace: string, asin: string) {
 }
 
 export async function GET(request: Request) {
+  const userId = await getChatGPTUserId();
+  if (!userId) return Response.json({ error: "请先登录后查询历史数据" }, { status: 401 });
+
   try {
     const url = new URL(request.url);
     const marketplace = (url.searchParams.get("marketplace") ?? "").trim().toUpperCase();
@@ -37,7 +41,7 @@ export async function GET(request: Request) {
 
     const [platform, retained] = await Promise.all([
       queryAsinHistory(marketplace, asin, rangeDays),
-      retainedHistory(marketplace, asin),
+      retainedHistory(userId, marketplace, asin),
     ]);
     return Response.json({ platform, retained });
   } catch (error) {

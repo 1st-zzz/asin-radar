@@ -190,8 +190,9 @@ export default function Home() {
 
   useEffect(() => {
     let active = true;
-    fetch("/api/analyze").then(async (response) => ({ ok: response.ok, payload: (await response.json()) as MonitorResponse })).then(({ ok, payload }) => {
-      if (!active || !ok) return;
+    fetch("/api/analyze").then(async (response) => ({ ok: response.ok, payload: (await response.json()) as MonitorResponse & { error?: string } })).then(({ ok, payload }) => {
+      if (!active) return;
+      if (!ok) return setMessage(payload.error || "监控记录暂时无法读取");
       setResults(payload.results);
       if (payload.results[0]) setSelectedKey(`${payload.results[0].marketplace}:${payload.results[0].asin}`);
       setMessage(payload.results.length ? `已载入 ${payload.results.length} 个监控对象` : "暂无监控记录，先建立今日基线");
@@ -276,19 +277,19 @@ export default function Home() {
           <button type="button" className={view === "monitor" ? "active" : ""} onClick={() => setView("monitor")}><span className="nav-icon">监</span><span>监控列表<small>同步与变化</small></span></button>
           <button type="button" className={view === "history" ? "active" : ""} onClick={() => setView("history")}><span className="nav-icon">历</span><span>历史查询<small>过往趋势</small></span></button>
         </nav>
-        <div className="sidebar-foot"><span className="live-dot" />数据服务正常<small>SellerSprite · D1 历史库</small></div>
+        <div className="sidebar-foot"><span className="live-dot" />数据服务正常<small>个人数据隔离 · D1 历史库</small></div>
       </aside>
 
       <main className="main-canvas" id="top">
         <header className="product-topbar">
           <div><p>竞品监控 / {view === "monitor" ? "监控列表" : "历史数据"}</p><h1>{view === "monitor" ? "监控列表" : "ASIN 历史查询"}</h1></div>
-          <div className="topbar-meta"><span>{latestCapture ? `数据更新 ${formatDate(latestCapture, true)}` : "等待首次同步"}</span><span className="account-badge">DE</span></div>
+          <div className="topbar-meta"><span>{latestCapture ? `数据更新 ${formatDate(latestCapture, true)}` : "等待首次同步"}</span><span className="account-badge">个人</span></div>
         </header>
 
         {view === "monitor" ? (
           <div className="page-content">
             <section className="welcome-row">
-              <div><h2>竞品每日监控</h2><p>统一跟踪折后价、评分、排名与核心流量；同口径逐日留存并标记异常变化。</p></div>
+              <div><h2>竞品每日监控</h2><p>只显示当前账号添加的产品；统一跟踪折后价、评分、排名、核心流量与 Listing 变化。</p></div>
               <form className="sync-card" onSubmit={handleSync}>
                 <div className="sync-head"><strong>同步今日快照</strong><span>最多 20 个 ASIN</span></div>
                 <div className="sync-fields"><select aria-label="默认站点" value={defaultMarketplace} onChange={(event) => setDefaultMarketplace(event.target.value)}>{MARKETPLACES.map((item) => <option key={item}>{item}</option>)}</select><textarea value={input} onChange={(event) => setInput(event.target.value)} rows={2} aria-label="ASIN 列表" /><button type="submit" disabled={isLoading}>{isLoading ? "同步中…" : "开始同步"}</button></div>

@@ -4,14 +4,16 @@ import { monitorRuns } from "../../../db/schema";
 import { analyzeAsin } from "../../../lib/sellersprite";
 import type { AnalysisResult } from "../../../lib/demo-data";
 import { decorateWithHistory, hydrateResult } from "../../../lib/history";
+import { getChatGPTUserId } from "../../chatgpt-auth";
 
 const MARKETPLACES = new Set(["US", "JP", "UK", "DE", "FR", "IT", "ES", "CA", "IN", "MX", "BR", "AU", "AE"]);
 
-async function persistResults(results: AnalysisResult[]) {
+async function persistResults(userId: string, results: AnalysisResult[]) {
   try {
     const db = getDb();
     await db.insert(monitorRuns).values(results.map((result) => ({
       id: crypto.randomUUID(),
+      userId,
       marketplace: result.marketplace,
       asin: result.asin,
       capturedAt: Date.parse(result.capturedAt),
@@ -23,12 +25,12 @@ async function persistResults(results: AnalysisResult[]) {
   }
 }
 
-async function getTargetHistory(marketplace: string, asin: string) {
+async function getTargetHistory(userId: string, marketplace: string, asin: string) {
   try {
     const rows = await getDb()
       .select()
       .from(monitorRuns)
-      .where(and(eq(monitorRuns.marketplace, marketplace), eq(monitorRuns.asin, asin)))
+      .where(and(eq(monitorRuns.userId, userId), eq(monitorRuns.marketplace, marketplace), eq(monitorRuns.asin, asin)))
       .orderBy(desc(monitorRuns.capturedAt))
       .limit(90);
     return rows.map((row) => hydrateResult(JSON.parse(row.resultJson)));
@@ -38,8 +40,16 @@ async function getTargetHistory(marketplace: string, asin: string) {
 }
 
 export async function GET() {
+  const userId = await getChatGPTUserId();
+  if (!userId) return Response.json({ error: "请先登录后查看监控产品" }, { status: 401 });
+
   try {
-    const rows = await getDb().select().from(monitorRuns).orderBy(desc(monitorRuns.capturedAt)).limit(1000);
+    const rows = await getDb()
+      .select()
+      .from(monitorRuns)
+      .where(eq(monitorRuns.userId, userId))
+      .orderBy(desc(monitorRuns.capturedAt))
+      .limit(1000);
     const grouped = new Map<string, AnalysisResult[]>();
     for (const row of rows) {
       const result = hydrateResult(JSON.parse(row.resultJson));
@@ -56,6 +66,9 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
+  const userId = await getChatGPTUserId();
+  if (!userId) return Response.json({ error: "请先登录后添加监控产品" }, { status: 401 });
+
   try {
     const payload = (await request.json()) as { targets?: Array<{ marketplace?: string; asin?: string }> };
     const targets = (payload.targets ?? []).map((target) => ({ marketplace: target.marketplace?.trim().toUpperCase() ?? "", asin: target.asin?.trim().toUpperCase() ?? "" }));
@@ -70,9 +83,9 @@ export async function POST(request: Request) {
       const reason = failures[0]?.reason;
       return Response.json({ error: reason instanceof Error ? reason.message : "所有 ASIN 分析均失败" }, { status: 503 });
     }
-    const histories = await Promise.all(results.map((result) => getTargetHistory(result.marketplace, result.asin)));
+    const histories = await Promise.all(results.map((result) => getTargetHistory(userId, result.marketplace, result.asin)));
     const decorated = results.map((result, index) => decorateWithHistory(result, histories[index]));
-    const persisted = await persistResults(results);
+    const persisted = await persistResults(userId, results);
     return Response.json({ results: decorated, persisted, failed: failures.length });
   } catch (error) {
     return Response.json({ error: error instanceof Error ? error.message : "分析请求失败" }, { status: 500 });

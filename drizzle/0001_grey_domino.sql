@@ -1,0 +1,2 @@
+ALTER TABLE `monitor_runs` ADD `user_id` text DEFAULT 'legacy-unassigned' NOT NULL;--> statement-breakpoint
+CREATE INDEX `monitor_runs_user_target_time_idx` ON `monitor_runs` (`user_id`,`marketplace`,`asin`,`captured_at`);

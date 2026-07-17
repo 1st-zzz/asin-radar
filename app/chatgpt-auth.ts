@@ -35,6 +35,20 @@ export async function getChatGPTUser(): Promise<ChatGPTUser | null> {
   };
 }
 
+export async function getChatGPTUserId(): Promise<string | null> {
+  const user = await getChatGPTUser();
+  if (!user) return null;
+
+  const normalizedEmail = user.email.trim().toLowerCase();
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(normalizedEmail),
+  );
+  return Array.from(new Uint8Array(digest), (byte) =>
+    byte.toString(16).padStart(2, "0"),
+  ).join("");
+}
+
 export async function requireChatGPTUser(
   returnTo: string,
 ): Promise<ChatGPTUser> {
