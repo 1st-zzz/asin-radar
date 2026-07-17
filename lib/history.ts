@@ -1,4 +1,4 @@
-import type { AnalysisResult, HistoryPoint, ListingChange, ListingSnapshot, MetricChange, PromotionChange, PromotionSnapshot, Severity } from "./demo-data";
+import type { AnalysisResult, CoreKeywordSnapshot, HistoryPoint, KeywordPlacementChange, ListingChange, ListingSnapshot, MetricChange, PromotionChange, PromotionSnapshot, Severity } from "./demo-data";
 
 function emptyChange(current: number | null): MetricChange {
   return { current, previous: null, absolute: null, percent: null, direction: "new", favorable: null };
@@ -85,6 +85,33 @@ function comparePromotion(current: PromotionSnapshot, previous: PromotionSnapsho
   return { baseline: false, changed: summaries.length > 0, summaries };
 }
 
+function compareKeywordPlacements(current: CoreKeywordSnapshot[], previous: CoreKeywordSnapshot[] | null): KeywordPlacementChange[] {
+  if (!previous) return current.map((item) => ({ ...item, previousNaturalRank: null, previousAdRank: null, naturalRankDelta: null, adRankDelta: null, status: "new" }));
+  const currentMap = new Map(current.map((item) => [item.keyword.toLowerCase(), item]));
+  const previousMap = new Map(previous.map((item) => [item.keyword.toLowerCase(), item]));
+  const keys = [...new Set([...currentMap.keys(), ...previousMap.keys()])];
+  return keys.map((key) => {
+    const now = currentMap.get(key);
+    const before = previousMap.get(key);
+    const base = now ?? before as CoreKeywordSnapshot;
+    const naturalRankDelta = now?.naturalRank !== null && now?.naturalRank !== undefined && before?.naturalRank !== null && before?.naturalRank !== undefined ? before.naturalRank - now.naturalRank : null;
+    const adRankDelta = now?.adRank !== null && now?.adRank !== undefined && before?.adRank !== null && before?.adRank !== undefined ? before.adRank - now.adRank : null;
+    const status = !before ? "new" : !now ? "lost" : now.naturalRank !== before.naturalRank || now.adRank !== before.adRank || now.adType !== before.adType ? "changed" : "stable";
+    return {
+      ...base,
+      trafficShare: now?.trafficShare ?? null,
+      naturalRank: now?.naturalRank ?? null,
+      adRank: now?.adRank ?? null,
+      adType: now?.adType ?? before?.adType ?? null,
+      previousNaturalRank: before?.naturalRank ?? null,
+      previousAdRank: before?.adRank ?? null,
+      naturalRankDelta,
+      adRankDelta,
+      status,
+    } as KeywordPlacementChange;
+  }).sort((a, b) => (b.trafficShare ?? -1) - (a.trafficShare ?? -1));
+}
+
 export function hydrateResult(input: Partial<AnalysisResult>): AnalysisResult {
   const metrics = input.metrics ?? ({} as AnalysisResult["metrics"]);
   const traffic = input.traffic ?? ({} as AnalysisResult["traffic"]);
@@ -97,6 +124,7 @@ export function hydrateResult(input: Partial<AnalysisResult>): AnalysisResult {
     salesVersion: input.salesVersion ?? 0,
     promotionVersion: input.promotionVersion ?? 0,
     listingVersion: input.listingVersion ?? 0,
+    trafficVersion: input.trafficVersion ?? 0,
     metrics: {
       ...metrics,
       price: effectivePrice,
@@ -131,6 +159,27 @@ export function hydrateResult(input: Partial<AnalysisResult>): AnalysisResult {
     },
     promotionChanges: input.promotionChanges ?? baselinePromotionChange(),
     promotionHistory: input.promotionHistory ?? [],
+    traffic: {
+      ...traffic,
+      naturalKeywords: traffic.naturalKeywords ?? null,
+      adKeywords: traffic.adKeywords ?? null,
+      spKeywords: traffic.spKeywords ?? traffic.adKeywords ?? null,
+      sbvKeywords: traffic.sbvKeywords ?? null,
+      sbKeywords: traffic.sbKeywords ?? null,
+      freeShare: traffic.freeShare ?? null,
+      paidShare: traffic.paidShare ?? null,
+      naturalTrafficShare: traffic.naturalTrafficShare ?? null,
+      adTrafficShare: traffic.adTrafficShare ?? null,
+      spTrafficShare: traffic.spTrafficShare ?? null,
+      sbvTrafficShare: traffic.sbvTrafficShare ?? null,
+      sbTrafficShare: traffic.sbTrafficShare ?? null,
+      otherAdTrafficShare: traffic.otherAdTrafficShare ?? null,
+      trafficCoverage: traffic.trafficCoverage ?? null,
+      coreKeywords: traffic.coreKeywords ?? [],
+      sourceNote: traffic.sourceNote ?? "旧快照仅包含关键词数量和关联结构，不含真实流量占比。",
+      interpretation: traffic.interpretation ?? "流量结构暂缺。",
+    },
+    keywordPlacementChanges: input.keywordPlacementChanges ?? [],
     listing: input.listing ?? {
       title: input.title ?? "",
       bullets: [],
@@ -145,6 +194,12 @@ export function hydrateResult(input: Partial<AnalysisResult>): AnalysisResult {
       bsr: emptyChange(metrics.bsr ?? null),
       naturalKeywords: emptyChange(traffic.naturalKeywords ?? null),
       freeShare: emptyChange(traffic.freeShare ?? null),
+      naturalTrafficShare: emptyChange(traffic.naturalTrafficShare ?? null),
+      adTrafficShare: emptyChange(traffic.adTrafficShare ?? null),
+      spTrafficShare: emptyChange(traffic.spTrafficShare ?? null),
+      sbvTrafficShare: emptyChange(traffic.sbvTrafficShare ?? null),
+      spKeywords: emptyChange(traffic.spKeywords ?? traffic.adKeywords ?? null),
+      sbvKeywords: emptyChange(traffic.sbvKeywords ?? null),
       monthlyUnits: emptyChange(metrics.monthlyUnits ?? null),
       monthlyUnitsGrowthPercent: emptyChange(metrics.monthlyUnitsGrowthPercent ?? null),
       monthlyRevenue: emptyChange(metrics.monthlyRevenue ?? null),
@@ -165,6 +220,14 @@ export function toHistoryPoint(result: AnalysisResult): HistoryPoint {
     adKeywords: result.traffic.adKeywords,
     freeShare: result.traffic.freeShare,
     paidShare: result.traffic.paidShare,
+    naturalTrafficShare: result.traffic.naturalTrafficShare,
+    adTrafficShare: result.traffic.adTrafficShare,
+    spTrafficShare: result.traffic.spTrafficShare,
+    sbvTrafficShare: result.traffic.sbvTrafficShare,
+    sbTrafficShare: result.traffic.sbTrafficShare,
+    spKeywords: result.traffic.spKeywords,
+    sbvKeywords: result.traffic.sbvKeywords,
+    sbKeywords: result.traffic.sbKeywords,
     monthlyUnits: result.metrics.monthlyUnits,
     monthlyUnitsGrowthPercent: result.metrics.monthlyUnitsGrowthPercent,
     monthlyRevenue: result.metrics.monthlyRevenue,
@@ -226,14 +289,28 @@ function changeConclusion(changes: AnalysisResult["changes"]): Array<{ severity:
     });
   }
 
-  const freeShare = changes.freeShare;
-  if (freeShare.absolute !== null && Math.abs(freeShare.absolute) >= 15) {
+  const adTrafficShare = changes.adTrafficShare;
+  if (adTrafficShare.absolute !== null && Math.abs(adTrafficShare.absolute) >= 5) {
     conclusions.push({
-      severity: "high",
-      title: `免费流量占比${freeShare.direction === "up" ? "提升" : "下降"} ${Math.abs(freeShare.absolute).toFixed(1)} 个百分点`,
-      body: `由 ${freeShare.previous?.toFixed(1)}% 变为 ${freeShare.current?.toFixed(1)}%。`,
+      severity: Math.abs(adTrafficShare.absolute) >= 15 ? "high" : "medium",
+      title: `广告流量占比${adTrafficShare.direction === "up" ? "提升" : "下降"} ${Math.abs(adTrafficShare.absolute).toFixed(1)} 个百分点`,
+      body: `由 ${adTrafficShare.previous?.toFixed(1)}% 变为 ${adTrafficShare.current?.toFixed(1)}%；按核心流量词的自然/广告贡献加权。`,
     });
   }
+
+  const spKeywords = changes.spKeywords;
+  if (spKeywords.percent !== null && Math.abs(spKeywords.percent) >= 25) conclusions.push({
+    severity: "medium",
+    title: `SP 广告词${spKeywords.direction === "up" ? "增加" : "减少"} ${Math.abs(spKeywords.percent).toFixed(1)}%`,
+    body: `由 ${spKeywords.previous} 个变为 ${spKeywords.current} 个；词数不等同于流量规模。`,
+  });
+
+  const sbvKeywords = changes.sbvKeywords;
+  if (sbvKeywords.previous !== null && sbvKeywords.current !== null && sbvKeywords.current !== sbvKeywords.previous) conclusions.push({
+    severity: "medium",
+    title: `SBV 广告词由 ${sbvKeywords.previous} 个变为 ${sbvKeywords.current} 个`,
+    body: "视频广告覆盖发生变化，建议结合核心关键词 SBV 广告位判断扩量或收缩。",
+  });
 
   const monthlyUnits = changes.monthlyUnits;
   if (monthlyUnits.percent !== null && Math.abs(monthlyUnits.percent) >= 25) {
@@ -279,12 +356,21 @@ export function decorateWithHistory(currentInput: AnalysisResult, previousInputs
   const promotionPrior = hydratedPrevious
     .filter((item) => item.promotionVersion === current.promotionVersion && item.promotionVersion > 0 && item.capturedAt.slice(0, 10) !== currentDay)
     .sort((a, b) => Date.parse(b.capturedAt) - Date.parse(a.capturedAt))[0] ?? null;
+  const trafficPrior = hydratedPrevious
+    .filter((item) => item.trafficVersion === current.trafficVersion && item.trafficVersion > 0 && item.capturedAt.slice(0, 10) !== currentDay)
+    .sort((a, b) => Date.parse(b.capturedAt) - Date.parse(a.capturedAt))[0] ?? null;
   const changes = {
     effectivePrice: change(current.metrics.effectivePrice, prior?.effectivePrice ?? null, "neutral"),
     rating: change(current.metrics.rating, prior?.rating ?? null, "up"),
     bsr: change(current.metrics.bsr, prior?.bsr ?? null, "down"),
-    naturalKeywords: change(current.traffic.naturalKeywords, prior?.naturalKeywords ?? null, "up"),
-    freeShare: change(current.traffic.freeShare, prior?.freeShare ?? null, "up"),
+    naturalKeywords: change(current.traffic.naturalKeywords, trafficPrior?.traffic.naturalKeywords ?? null, "up"),
+    freeShare: change(current.traffic.freeShare, trafficPrior?.traffic.freeShare ?? null, "up"),
+    naturalTrafficShare: change(current.traffic.naturalTrafficShare, trafficPrior?.traffic.naturalTrafficShare ?? null, "up"),
+    adTrafficShare: change(current.traffic.adTrafficShare, trafficPrior?.traffic.adTrafficShare ?? null, "neutral"),
+    spTrafficShare: change(current.traffic.spTrafficShare, trafficPrior?.traffic.spTrafficShare ?? null, "neutral"),
+    sbvTrafficShare: change(current.traffic.sbvTrafficShare, trafficPrior?.traffic.sbvTrafficShare ?? null, "neutral"),
+    spKeywords: change(current.traffic.spKeywords, trafficPrior?.traffic.spKeywords ?? null, "neutral"),
+    sbvKeywords: change(current.traffic.sbvKeywords, trafficPrior?.traffic.sbvKeywords ?? null, "neutral"),
     monthlyUnits: change(current.metrics.monthlyUnits, salesPrior?.metrics.monthlyUnits ?? null, "up"),
     monthlyUnitsGrowthPercent: change(current.metrics.monthlyUnitsGrowthPercent, salesPrior?.metrics.monthlyUnitsGrowthPercent ?? null, "up"),
     monthlyRevenue: change(current.metrics.monthlyRevenue, salesPrior?.metrics.monthlyRevenue ?? null, "up"),
@@ -313,6 +399,15 @@ export function decorateWithHistory(currentInput: AnalysisResult, previousInputs
         body: promotionChanges.summaries.join("；") + "。",
       }]
     : [];
+  const keywordPlacementChanges = compareKeywordPlacements(current.traffic.coreKeywords, trafficPrior?.traffic.coreKeywords ?? null);
+  const placementMovers = keywordPlacementChanges.filter((item) => item.status === "changed" || item.status === "lost");
+  const trafficConclusions = placementMovers.length
+    ? [{
+        severity: placementMovers.some((item) => item.adRankDelta !== null && Math.abs(item.adRankDelta) >= 10) ? "high" as const : "medium" as const,
+        title: `核心关键词广告/自然位发生 ${placementMovers.length} 项变化`,
+        body: placementMovers.slice(0, 3).map((item) => `${item.keyword}${item.status === "lost" ? "流失" : "位置变化"}`).join("；") + "。",
+      }]
+    : [];
 
   return {
     ...current,
@@ -320,11 +415,12 @@ export function decorateWithHistory(currentInput: AnalysisResult, previousInputs
     changes,
     promotionChanges,
     listingChanges,
+    keywordPlacementChanges,
     comparisonCapturedAt: prior?.capturedAt ?? null,
-    conclusions: [...promotionConclusions, ...listingConclusions, ...deltaConclusions, ...current.conclusions],
+    conclusions: [...trafficConclusions, ...promotionConclusions, ...listingConclusions, ...deltaConclusions, ...current.conclusions],
   };
 }
 
 export function storedResult(result: AnalysisResult) {
-  return { ...result, history: [], comparisonCapturedAt: null, conclusions: result.conclusions.filter((item) => item.title !== "已建立每日监控基线") };
+  return { ...result, history: [], keywordPlacementChanges: [], comparisonCapturedAt: null, conclusions: result.conclusions.filter((item) => item.title !== "已建立每日监控基线") };
 }

@@ -161,6 +161,36 @@ table { border-collapse: collapse; }
 .promotion-history-row strong { font-size: 10px; white-space: nowrap; }
 .promotion-history-row small { overflow: hidden; color: var(--muted); font-size: 8px; text-align: right; text-overflow: ellipsis; white-space: nowrap; }
 .promotion-history-empty { margin-top: 9px; padding: 12px; border: 1px dashed var(--border); border-radius: 6px; color: var(--muted); font-size: 9px; text-align: center; }
+.traffic-panel { padding: 14px 16px; border-bottom: 1px solid var(--border); background: #f8fbff; }
+.traffic-heading, .keyword-placement-heading { display: flex; align-items: end; justify-content: space-between; gap: 12px; }
+.traffic-heading h3 { margin: 0; font-size: 14px; font-weight: 650; }
+.traffic-heading > span, .keyword-placement-heading small { color: var(--muted); font-size: 8px; }
+.traffic-share-bar { display: flex; height: 7px; overflow: hidden; margin-top: 11px; border-radius: 999px; background: #e5e7eb; }
+.traffic-share-bar span { min-width: 0; }
+.traffic-share-bar .natural { background: #2563eb; }
+.traffic-share-bar .paid { background: #f59e0b; }
+.traffic-metrics { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; margin-top: 9px; }
+.traffic-metrics > div { min-width: 0; padding: 10px 11px; border: 1px solid var(--border); border-radius: 6px; background: white; }
+.traffic-metrics span:first-child, .traffic-metrics small { display: block; color: var(--muted); font-size: 8px; }
+.traffic-metrics strong { display: block; margin: 5px 0 4px; font-size: 16px; font-weight: 650; }
+.traffic-metrics .delta { margin-bottom: 4px; }
+.keyword-placement { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border); }
+.keyword-placement-heading strong { font-size: 11px; }
+.keyword-table { width: 100%; margin-top: 8px; border-collapse: collapse; font-size: 9px; }
+.keyword-table th { padding: 7px 8px; border-bottom: 1px solid var(--border); color: var(--muted); font-size: 8px; font-weight: 600; text-align: left; white-space: nowrap; }
+.keyword-table td { padding: 7px 8px; border-bottom: 1px solid #edf0f4; vertical-align: middle; }
+.keyword-table td > strong, .keyword-table td > small { display: block; }
+.keyword-table td > small { margin-top: 2px; color: var(--muted); font-size: 8px; }
+.rank-delta { display: inline-flex; margin-top: 3px; padding: 2px 4px; border-radius: 4px; font-size: 7px; white-space: nowrap; }
+.rank-delta.up { background: var(--green-soft); color: var(--green); }
+.rank-delta.down { background: var(--red-soft); color: var(--red); }
+.rank-delta.quiet { background: #f3f4f6; color: var(--muted); }
+.ad-type { display: inline-flex; min-width: 34px; justify-content: center; padding: 3px 5px; border-radius: 4px; font-size: 7px; font-weight: 700; }
+.ad-type.sp { background: #fff7ed; color: #c2410c; }
+.ad-type.sbv { background: #f5f3ff; color: #6d28d9; }
+.ad-type.sb { background: #ecfeff; color: #0e7490; }
+.ad-type.organic { background: #eff6ff; color: #1d4ed8; }
+.traffic-source-note { margin: 9px 0 0; color: var(--muted); font-size: 8px; line-height: 1.45; }
 .listing-panel { padding: 14px 16px; border-bottom: 1px solid var(--border); background: #fcfdff; }
 .listing-panel-heading { display: flex; align-items: end; justify-content: space-between; gap: 12px; }
 .listing-panel-heading h3 { margin: 0; font-size: 14px; font-weight: 650; }
@@ -250,6 +280,7 @@ table { border-collapse: collapse; }
   .listing-grid { grid-template-columns: 1fr; }
   .promotion-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .promotion-history-list { grid-template-columns: 1fr; }
+  .traffic-metrics { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .chart-panel { border-right: 0; border-bottom: 1px solid var(--border); }
 }
 
@@ -288,6 +319,7 @@ table { border-collapse: collapse; }
   .history-product-info h2 { white-space: normal; }
   .listing-current { grid-template-columns: 1fr; }
   .promotion-grid { grid-template-columns: 1fr; }
+  .traffic-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .promotion-history-row { grid-template-columns: 44px auto auto; }
   .promotion-history-row small { grid-column: 1 / -1; text-align: left; }
   .listing-images { overflow-x: auto; }

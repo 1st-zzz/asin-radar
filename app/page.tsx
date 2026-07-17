@@ -13,7 +13,7 @@ import type {
 
 const MARKETPLACES = ["US", "JP", "UK", "DE", "FR", "IT", "ES", "CA", "IN", "MX", "BR", "AU", "AE"];
 type ViewMode = "monitor" | "history";
-type SnapshotMetric = "effectivePrice" | "monthlyUnits" | "monthlyRevenue" | "dealPrice" | "rating" | "bsr" | "naturalKeywords" | "freeShare";
+type SnapshotMetric = "effectivePrice" | "monthlyUnits" | "monthlyRevenue" | "dealPrice" | "rating" | "bsr" | "naturalKeywords" | "naturalTrafficShare" | "adTrafficShare" | "spTrafficShare" | "sbvTrafficShare" | "spKeywords" | "sbvKeywords";
 type PlatformMetric = "marketPrice" | "promotionPrice" | "bsr" | "rating" | "reviews";
 
 const SNAPSHOT_METRICS: Array<{ key: SnapshotMetric; label: string }> = [
@@ -24,7 +24,12 @@ const SNAPSHOT_METRICS: Array<{ key: SnapshotMetric; label: string }> = [
   { key: "rating", label: "评分" },
   { key: "bsr", label: "BSR" },
   { key: "naturalKeywords", label: "自然词" },
-  { key: "freeShare", label: "免费流量" },
+  { key: "naturalTrafficShare", label: "自然流量占比" },
+  { key: "adTrafficShare", label: "广告流量占比" },
+  { key: "spTrafficShare", label: "SP 占比" },
+  { key: "sbvTrafficShare", label: "SBV 占比" },
+  { key: "spKeywords", label: "SP 词" },
+  { key: "sbvKeywords", label: "SBV 词" },
 ];
 const PLATFORM_METRICS: Array<{ key: PlatformMetric; label: string }> = [
   { key: "marketPrice", label: "平台售价" },
@@ -46,6 +51,10 @@ function formatMoney(value: number | null, currency: string) {
   } catch {
     return `${currency} ${value.toFixed(2)}`;
   }
+}
+
+function formatPercent(value: number | null, digits = 1) {
+  return value === null ? "—" : `${formatNumber(value, digits)}%`;
 }
 
 function formatDate(value: string, withTime = false) {
@@ -102,7 +111,8 @@ function Bars({ points, values, labels, formatter }: { points: string[]; values:
 
 function SnapshotChart({ result, metric }: { result: AnalysisResult; metric: SnapshotMetric }) {
   const history = result.history.slice(-30);
-  const formatter = (value: number | null) => metric === "effectivePrice" || metric === "monthlyRevenue" || metric === "dealPrice" ? formatMoney(value, result.currency) : metric === "rating" || metric === "freeShare" ? `${formatNumber(value, 1)}${metric === "freeShare" ? "%" : ""}` : formatNumber(value);
+  const percentMetric = metric === "naturalTrafficShare" || metric === "adTrafficShare" || metric === "spTrafficShare" || metric === "sbvTrafficShare";
+  const formatter = (value: number | null) => metric === "effectivePrice" || metric === "monthlyRevenue" || metric === "dealPrice" ? formatMoney(value, result.currency) : metric === "rating" ? formatNumber(value, 1) : percentMetric ? `${formatNumber(value, 1)}%` : formatNumber(value);
   return <Bars points={history.map((point) => point.capturedAt)} labels={history.map((point) => formatDate(point.capturedAt))} values={history.map((point: HistoryPoint) => point[metric])} formatter={formatter} />;
 }
 
@@ -157,6 +167,58 @@ function promotionDisplay(result: AnalysisResult) {
   return { label, tone, detail };
 }
 
+function RankDelta({ value, current, previous }: { value: number | null; current: number | null; previous: number | null }) {
+  if (current === null && previous === null) return <span className="rank-delta quiet">无位置</span>;
+  if (current === null) return <span className="rank-delta down">已流失</span>;
+  if (previous === null) return <span className="rank-delta quiet">新基线</span>;
+  if (value === null || value === 0) return <span className="rank-delta quiet">持平</span>;
+  return <span className={`rank-delta ${value > 0 ? "up" : "down"}`}>{value > 0 ? "↑" : "↓"} {Math.abs(value)} 位</span>;
+}
+
+function TrafficPanel({ result }: { result: AnalysisResult }) {
+  const keywordRows = result.keywordPlacementChanges.length
+    ? result.keywordPlacementChanges
+    : result.traffic.coreKeywords.map((item) => ({ ...item, previousNaturalRank: null, previousAdRank: null, naturalRankDelta: null, adRankDelta: null, status: "new" as const }));
+  const naturalShare = result.traffic.naturalTrafficShare ?? 0;
+  const adShare = result.traffic.adTrafficShare ?? 0;
+  return (
+    <section className="traffic-panel">
+      <div className="traffic-heading"><div><span className="section-label">Traffic Watch</span><h3>广告与自然流量结构</h3></div><span>覆盖 {formatNumber(result.traffic.trafficCoverage, 1)}% 核心流量</span></div>
+      <div className="traffic-share-bar" aria-label={`自然流量 ${naturalShare.toFixed(1)}%，广告流量 ${adShare.toFixed(1)}%`}>
+        <span className="natural" style={{ width: `${Math.max(0, Math.min(100, naturalShare))}%` }} />
+        <span className="paid" style={{ width: `${Math.max(0, Math.min(100, adShare))}%` }} />
+      </div>
+      <div className="traffic-metrics">
+        <div><span>自然流量占比</span><strong>{formatPercent(result.traffic.naturalTrafficShare)}</strong><DeltaBadge change={result.changes.naturalTrafficShare} mode="absolute" suffix="pp" /><small>{formatNumber(result.traffic.naturalKeywords)} 个自然词</small></div>
+        <div><span>广告流量占比</span><strong>{formatPercent(result.traffic.adTrafficShare)}</strong><DeltaBadge change={result.changes.adTrafficShare} mode="absolute" suffix="pp" /><small>{formatNumber(result.traffic.adKeywords)} 个广告词</small></div>
+        <div><span>SP</span><strong>{formatPercent(result.traffic.spTrafficShare)}</strong><DeltaBadge change={result.changes.spTrafficShare} mode="absolute" suffix="pp" /><small>{formatNumber(result.traffic.spKeywords)} 个 SP 词</small></div>
+        <div><span>SBV</span><strong>{formatPercent(result.traffic.sbvTrafficShare)}</strong><DeltaBadge change={result.changes.sbvTrafficShare} mode="absolute" suffix="pp" /><small>{formatNumber(result.traffic.sbvKeywords)} 个视频广告词</small></div>
+        <div><span>SB</span><strong>{formatPercent(result.traffic.sbTrafficShare)}</strong><span className="delta quiet">结构监控</span><small>{formatNumber(result.traffic.sbKeywords)} 个品牌广告词</small></div>
+      </div>
+      <div className="keyword-placement">
+        <div className="keyword-placement-heading"><strong>核心关键词广告位</strong><small>自然位、SP、SBV、SB 每日对比</small></div>
+        <div className="table-scroll">
+          <table className="keyword-table">
+            <thead><tr><th>关键词</th><th>流量占比</th><th>搜索量</th><th>自然位</th><th>广告类型</th><th>广告位</th></tr></thead>
+            <tbody>
+              {keywordRows.slice(0, 10).map((item) => <tr key={item.keyword}>
+                <td><strong>{item.keyword}</strong><small>{item.keywordCn ?? "—"}</small></td>
+                <td>{item.trafficShare === null ? "—" : `${formatNumber(item.trafficShare, 2)}%`}</td>
+                <td>{formatNumber(item.searches)}</td>
+                <td><strong>{item.naturalRank ?? "—"}</strong><RankDelta value={item.naturalRankDelta} current={item.naturalRank} previous={item.previousNaturalRank} /></td>
+                <td><span className={`ad-type ${item.adType ? item.adType.toLowerCase() : "organic"}`}>{item.adType ?? "自然"}</span></td>
+                <td><strong>{item.adRank ?? "—"}</strong><RankDelta value={item.adRankDelta} current={item.adRank} previous={item.previousAdRank} /></td>
+              </tr>)}
+              {!keywordRows.length && <tr><td colSpan={6} className="empty-cell">本次未返回核心关键词明细。</td></tr>}
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <p className="traffic-source-note">{result.traffic.sourceNote} 免费/付费关联占比为 {formatNumber(result.traffic.freeShare, 1)}% / {formatNumber(result.traffic.paidShare, 1)}%，单独作为关联结构参考。</p>
+    </section>
+  );
+}
+
 function SnapshotDetail({ result }: { result: AnalysisResult }) {
   const [metric, setMetric] = useState<SnapshotMetric>("effectivePrice");
   const listingStatus = result.listingChanges.baseline
@@ -177,7 +239,7 @@ function SnapshotDetail({ result }: { result: AnalysisResult }) {
         <div><span>PD / Coupon / Deal</span><strong className={`promotion-value ${promotionState.tone}`}>{promotionState.label}</strong>{result.promotion.dealPrice !== null ? <DeltaBadge change={result.changes.dealPrice} /> : <span className="delta quiet">状态监控</span>}<small>{promotionState.detail}</small></div>
         <div><span>评分</span><strong>{formatNumber(result.metrics.rating, 1)}</strong><DeltaBadge change={result.changes.rating} mode="absolute" /><small>{formatNumber(result.metrics.reviews)} 个评分</small></div>
         <div><span>主类 BSR</span><strong>{formatNumber(result.metrics.bsr)}</strong><DeltaBadge change={result.changes.bsr} /><small>数字越低越好</small></div>
-        <div><span>核心流量</span><strong>{formatNumber(result.traffic.naturalKeywords)} 自然词</strong><DeltaBadge change={result.changes.freeShare} mode="absolute" suffix="pp" /><small>免费 {formatNumber(result.traffic.freeShare, 1)}% · 广告词 {formatNumber(result.traffic.adKeywords)}</small></div>
+        <div><span>核心流量</span><strong>自然 {formatPercent(result.traffic.naturalTrafficShare)}</strong><DeltaBadge change={result.changes.naturalTrafficShare} mode="absolute" suffix="pp" /><small>广告 {formatPercent(result.traffic.adTrafficShare)} · SP {formatNumber(result.traffic.spKeywords)} 词 · SBV {formatNumber(result.traffic.sbvKeywords)} 词</small></div>
       </div>
       <section className="promotion-panel">
         <div className="promotion-heading"><div><span className="section-label">Promotion Watch</span><h3>销量与促销状态</h3></div><span className={`promotion-badge ${promotionState.tone}`}>{promotionState.label}</span></div>
@@ -190,6 +252,7 @@ function SnapshotDetail({ result }: { result: AnalysisResult }) {
         </div>
         <PromotionHistoryList points={result.promotionHistory} currency={result.currency} />
       </section>
+      <TrafficPanel result={result} />
       <section className="listing-panel">
         <div className="listing-panel-heading">
           <div><span className="section-label">Listing Watch</span><h3>图片与文案变动</h3></div>
@@ -381,13 +444,13 @@ export default function Home() {
                         <td><span className={`promotion-badge ${promotionState.tone}`}>{promotionState.label}</span><small>{promotionState.detail}</small></td>
                         <td><strong>{formatNumber(item.metrics.rating, 1)}</strong><DeltaBadge change={item.changes.rating} mode="absolute" /></td>
                         <td><strong>{formatNumber(item.metrics.bsr)}</strong><DeltaBadge change={item.changes.bsr} /></td>
-                        <td><strong>{formatNumber(item.traffic.naturalKeywords)} 自然词</strong><small>免费 {formatNumber(item.traffic.freeShare, 1)}%</small></td>
+                        <td><strong>自然 {formatPercent(item.traffic.naturalTrafficShare)} · 广告 {formatPercent(item.traffic.adTrafficShare)}</strong><small>SP {formatNumber(item.traffic.spKeywords)} 词 · SBV {formatNumber(item.traffic.sbvKeywords)} 词</small></td>
                         <td><strong className={item.listingChanges.changed ? "listing-table-changed" : ""}>{item.listingChanges.baseline ? "已建基线" : item.listingChanges.changed ? `${item.listingChanges.summaries.length} 项变动` : "无变动"}</strong><small>{item.listing.imageUrls.length} 图 · {item.listing.bullets.length} 条五点</small></td>
                         <td><strong>{formatDate(item.capturedAt)}</strong><small>{item.history.length} 天记录</small></td>
                         <td><button type="button" className="history-link" onClick={(event) => { event.stopPropagation(); openHistory(item); }}>查历史</button></td>
                       </tr>;
                     })}
-                    {!results.length && <tr><td className="empty-cell" colSpan={10}>还没有监控对象。上方输入 ASIN 并点击“开始同步”，即可获取当前价格、历史 Coupon/Deal 和销量基线。</td></tr>}
+                    {!results.length && <tr><td className="empty-cell" colSpan={10}>还没有监控对象。上方输入 ASIN 并点击“开始同步”，即可获取价格、销量、广告/自然流量和核心关键词位基线。</td></tr>}
                   </tbody>
                 </table>
               </div>
@@ -397,7 +460,7 @@ export default function Home() {
         ) : (
           <div className="page-content history-page">
             <section className="history-hero">
-              <div className="history-copy"><h2>查询 ASIN 历史表现</h2><p>查询平台历史价格、Deal、BSR、评分与评论轨迹；已加入监控的 ASIN 还可查看销量估算、Coupon 和核心流量快照。</p></div>
+              <div className="history-copy"><h2>查询 ASIN 历史表现</h2><p>查询平台历史价格、Deal、BSR、评分与评论轨迹；已加入监控的 ASIN 还可查看销量、广告/自然流量占比及 SP、SBV 核心关键词位变化。</p></div>
               <form className="history-search" onSubmit={handleHistoryQuery}>
                 <label>查询对象</label><div className="history-fields"><select aria-label="历史查询站点" value={historyMarketplace} onChange={(event) => setHistoryMarketplace(event.target.value)}>{MARKETPLACES.map((item) => <option key={item}>{item}</option>)}</select><input value={historyAsin} onChange={(event) => setHistoryAsin(event.target.value.toUpperCase())} placeholder="输入 10 位 ASIN" maxLength={10} /><select aria-label="历史范围" value={historyDays} onChange={(event) => setHistoryDays(event.target.value)}><option value="30">近 30 天</option><option value="90">近 90 天</option><option value="180">近 180 天</option><option value="365">近 365 天</option></select><button type="submit" disabled={historyLoading}>{historyLoading ? "查询中…" : "查询历史"}</button></div><p role="status">{historyMessage}</p>
               </form>

@@ -19,10 +19,36 @@ export type HistoryPoint = {
   adKeywords: number | null;
   freeShare: number | null;
   paidShare: number | null;
+  naturalTrafficShare: number | null;
+  adTrafficShare: number | null;
+  spTrafficShare: number | null;
+  sbvTrafficShare: number | null;
+  sbTrafficShare: number | null;
+  spKeywords: number | null;
+  sbvKeywords: number | null;
+  sbKeywords: number | null;
   monthlyUnits: number | null;
   monthlyUnitsGrowthPercent: number | null;
   monthlyRevenue: number | null;
   dealPrice: number | null;
+};
+
+export type CoreKeywordSnapshot = {
+  keyword: string;
+  keywordCn: string | null;
+  trafficShare: number | null;
+  searches: number | null;
+  naturalRank: number | null;
+  adRank: number | null;
+  adType: "SP" | "SBV" | "SB" | null;
+};
+
+export type KeywordPlacementChange = CoreKeywordSnapshot & {
+  previousNaturalRank: number | null;
+  previousAdRank: number | null;
+  naturalRankDelta: number | null;
+  adRankDelta: number | null;
+  status: "new" | "lost" | "changed" | "stable";
 };
 
 export type PromotionSnapshot = {
@@ -81,6 +107,7 @@ export type AnalysisResult = {
   salesVersion: number;
   promotionVersion: number;
   listingVersion: number;
+  trafficVersion: number;
   marketplace: string;
   asin: string;
   capturedAt: string;
@@ -113,10 +140,23 @@ export type AnalysisResult = {
   traffic: {
     naturalKeywords: number | null;
     adKeywords: number | null;
+    spKeywords: number | null;
+    sbvKeywords: number | null;
+    sbKeywords: number | null;
     freeShare: number | null;
     paidShare: number | null;
+    naturalTrafficShare: number | null;
+    adTrafficShare: number | null;
+    spTrafficShare: number | null;
+    sbvTrafficShare: number | null;
+    sbTrafficShare: number | null;
+    otherAdTrafficShare: number | null;
+    trafficCoverage: number | null;
+    coreKeywords: CoreKeywordSnapshot[];
+    sourceNote: string;
     interpretation: string;
   };
+  keywordPlacementChanges: KeywordPlacementChange[];
   conclusions: Array<{ severity: Severity; title: string; body: string }>;
   competitors: Array<{
     asin: string;
@@ -137,6 +177,12 @@ export type AnalysisResult = {
     bsr: MetricChange;
     naturalKeywords: MetricChange;
     freeShare: MetricChange;
+    naturalTrafficShare: MetricChange;
+    adTrafficShare: MetricChange;
+    spTrafficShare: MetricChange;
+    sbvTrafficShare: MetricChange;
+    spKeywords: MetricChange;
+    sbvKeywords: MetricChange;
     monthlyUnits: MetricChange;
     monthlyUnitsGrowthPercent: MetricChange;
     monthlyRevenue: MetricChange;
@@ -185,6 +231,7 @@ export const demoResult: AnalysisResult = {
   salesVersion: 1,
   promotionVersion: 2,
   listingVersion: 1,
+  trafficVersion: 1,
   marketplace: "DE",
   asin: "B0DPDKLHYM",
   capturedAt: "2026-07-16T22:31:59+08:00",
@@ -232,15 +279,32 @@ export const demoResult: AnalysisResult = {
     summaries: ["已建立促销基线"],
   },
   promotionHistory: [
-    { capturedAt: "2026-04-02T12:00:00.000Z", kind: "coupon", label: "金额 Coupon", listPrice: 31.99, promotionPrice: 26.99, discountAmount: 5, discountPercent: 15.63 },
+    { capturedAt: "2026-04-02T12:00:00.000Z", kind: "coupon", label: "Coupon · 金额", listPrice: 31.99, promotionPrice: 26.99, discountAmount: 5, discountPercent: 15.63 },
   ],
   traffic: {
     naturalKeywords: 130,
     adKeywords: 4,
+    spKeywords: 4,
+    sbvKeywords: 0,
+    sbKeywords: 0,
     freeShare: 93.05,
     paidShare: 6.95,
-    interpretation: "自然覆盖强、广告依赖低。当前更应守住自然词和评分，而不是盲目增加广告词。",
+    naturalTrafficShare: 99.43,
+    adTrafficShare: 0.57,
+    spTrafficShare: 0.57,
+    sbvTrafficShare: 0,
+    sbTrafficShare: 0,
+    otherAdTrafficShare: 0,
+    trafficCoverage: 100,
+    coreKeywords: [
+      { keyword: "schneidebrett", keywordCn: "菜板", trafficShare: 26.66, searches: 53091, naturalRank: 67, adRank: null, adType: null },
+      { keyword: "titan", keywordCn: "泰坦", trafficShare: 5.93, searches: 18188, naturalRank: 5, adRank: null, adType: null },
+      { keyword: "schneidebretter", keywordCn: "砧板", trafficShare: 3.43, searches: 8784, naturalRank: 20, adRank: 10, adType: "SP" },
+    ],
+    sourceNote: "流量占比按 SellerSprite 核心流量词的 trafficPercentage × naturalRatio/adRatio 加权；广告类型按 badges 区分。",
+    interpretation: "自然流量占主导；当前广告流量主要来自 SP，暂未检测到 SBV。",
   },
+  keywordPlacementChanges: [],
   conclusions: [
     { severity: "info", title: "自然流量结构领先", body: "免费关联占 93.05%，广告关键词仅 4 个，当前不是广告堆量型。" },
     { severity: "medium", title: "评分是最明确的短板", body: "评分 4.0 低于直接竞品中位数 4.2，可能限制转化和价格上限。" },
@@ -286,6 +350,12 @@ export const demoResult: AnalysisResult = {
     bsr: { current: 229700, previous: null, absolute: null, percent: null, direction: "new", favorable: null },
     naturalKeywords: { current: 130, previous: null, absolute: null, percent: null, direction: "new", favorable: null },
     freeShare: { current: 93.05, previous: null, absolute: null, percent: null, direction: "new", favorable: null },
+    naturalTrafficShare: { current: 99.43, previous: null, absolute: null, percent: null, direction: "new", favorable: null },
+    adTrafficShare: { current: 0.57, previous: null, absolute: null, percent: null, direction: "new", favorable: null },
+    spTrafficShare: { current: 0.57, previous: null, absolute: null, percent: null, direction: "new", favorable: null },
+    sbvTrafficShare: { current: 0, previous: null, absolute: null, percent: null, direction: "new", favorable: null },
+    spKeywords: { current: 4, previous: null, absolute: null, percent: null, direction: "new", favorable: null },
+    sbvKeywords: { current: 0, previous: null, absolute: null, percent: null, direction: "new", favorable: null },
     monthlyUnits: { current: 682, previous: null, absolute: null, percent: null, direction: "new", favorable: null },
     monthlyUnitsGrowthPercent: { current: 18.4, previous: null, absolute: null, percent: null, direction: "new", favorable: null },
     monthlyRevenue: { current: 15467.76, previous: null, absolute: null, percent: null, direction: "new", favorable: null },

@@ -22,6 +22,10 @@ test("builds the daily monitoring dashboard", async () => {
   assert.match(page, /历史记录，不代表当前活动/);
   assert.match(page, /当前无活动 · 历史有促销/);
   assert.match(page, /平台历史轨迹/);
+  assert.match(page, /广告与自然流量结构/);
+  assert.match(page, /核心关键词广告位/);
+  assert.match(page, /自然流量占比/);
+  assert.match(page, /SBV/);
   assert.match(page, /fetch\("\/api\/analyze"\)/);
   assert.match(page, /fetch\(`\/api\/history\?\$\{query\}`\)/);
   assert.doesNotMatch(page, /codex-preview|Your site is taking shape|Codex is working/i);
