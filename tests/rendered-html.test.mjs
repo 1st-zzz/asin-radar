@@ -13,6 +13,9 @@ test("builds the daily monitoring dashboard", async () => {
   assert.match(page, /ASIN 历史查询/);
   assert.match(page, /查询历史/);
   assert.match(page, /折后价/);
+  assert.match(page, /月销量/);
+  assert.match(page, /Deal \/ Coupon/);
+  assert.match(page, /销量与促销状态/);
   assert.match(page, /平台历史轨迹/);
   assert.match(page, /fetch\("\/api\/analyze"\)/);
   assert.match(page, /fetch\(`\/api\/history\?\$\{query\}`\)/);

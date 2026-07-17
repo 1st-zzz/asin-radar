@@ -75,24 +75,26 @@ function roundMoney(value: number) {
 
 function effectivePrice(price: number | null, couponValue: unknown) {
   const coupon = typeof couponValue === "string" ? couponValue.trim() : "";
-  if (price === null) return { coupon: coupon || null, value: null, note: "当前价格缺失" };
-  if (!coupon) return { coupon: null, value: price, note: "当前无优惠券" };
+  if (price === null) return { coupon: coupon || null, couponActive: coupon ? true : false, couponType: coupon ? "text" as const : null, couponValue: coupon || null, couponFinalPrice: null, value: null, note: "当前价格缺失" };
+  if (!coupon) return { coupon: null, couponActive: false, couponType: null, couponValue: null, couponFinalPrice: null, value: price, note: "当前无优惠券" };
 
   const percentMatch = coupon.match(/(\d+(?:\.\d+)?)\s*%/);
   if (percentMatch) {
     const discount = Number(percentMatch[1]);
-    return { coupon, value: roundMoney(price * (1 - discount / 100)), note: `已扣除 ${coupon} 优惠券` };
+    const value = roundMoney(price * (1 - discount / 100));
+    return { coupon, couponActive: true, couponType: "percent" as const, couponValue: discount, couponFinalPrice: value, value, note: `已扣除 ${coupon} 优惠券` };
   }
 
   const amountMatch = coupon.match(/(\d+(?:[.,]\d+)?)/);
   if (amountMatch && !/%/.test(coupon)) {
     const discount = Number(amountMatch[1].replace(",", "."));
     if (Number.isFinite(discount) && discount > 0 && discount < price) {
-      return { coupon, value: roundMoney(price - discount), note: `已扣除 ${coupon} 优惠券` };
+      const value = roundMoney(price - discount);
+      return { coupon, couponActive: true, couponType: "amount" as const, couponValue: discount, couponFinalPrice: value, value, note: `已扣除 ${coupon} 优惠券` };
     }
   }
 
-  return { coupon, value: null, note: `优惠券“${coupon}”无法可靠换算` };
+  return { coupon, couponActive: true, couponType: "text" as const, couponValue: coupon, couponFinalPrice: null, value: null, note: `优惠券“${coupon}”无法可靠换算` };
 }
 
 function emptyChange(current: number | null) {
@@ -110,6 +112,13 @@ function uniqueStrings(values: string[]) {
 
 type TrendValue = { timePoint?: number; value?: number };
 
+function recentDealObservation(value: unknown, capturedAt: number) {
+  if (!Array.isArray(value)) return null;
+  return (value as TrendValue[])
+    .filter((item) => typeof item.timePoint === "number" && typeof item.value === "number" && item.value > 0 && capturedAt - item.timePoint >= 0 && capturedAt - item.timePoint <= 36 * 3600000)
+    .sort((a, b) => (b.timePoint ?? 0) - (a.timePoint ?? 0))[0] ?? null;
+}
+
 function mergeHistorySeries(data: AnyRecord) {
   const byDay = new Map<string, PlatformHistoryPoint & { timestamp: number; price?: number | null; dealPrice?: number | null }>();
   const apply = (series: TrendValue[] | undefined, field: "price" | "dealPrice" | "listPrice" | "buyBoxPrice" | "bsr" | "rating" | "reviews") => {
@@ -121,7 +130,8 @@ function mergeHistorySeries(data: AnyRecord) {
         capturedAt: new Date(item.timePoint).toISOString(),
         marketPrice: null,
         listPrice: null,
-        buyBoxPrice: null,
+      buyBoxPrice: null,
+      dealPrice: null,
         bsr: null,
         rating: null,
         reviews: null,
@@ -150,6 +160,7 @@ function mergeHistorySeries(data: AnyRecord) {
       marketPrice: point.dealPrice ?? point.buyBoxPrice ?? point.price ?? null,
       listPrice: point.listPrice,
       buyBoxPrice: point.buyBoxPrice,
+      dealPrice: point.dealPrice ?? null,
       bsr: point.bsr,
       rating: point.rating,
       reviews: point.reviews,
@@ -181,7 +192,7 @@ export async function queryAsinHistory(marketplace: string, asin: string, rangeD
       rangeDays,
       points: mergeHistorySeries(data),
       source: "SellerSprite Keepa",
-      sourceNote: "平台历史价格使用 Keepa 售价/Buy Box 轨迹，不等同于本产品每日按优惠券换算的折后价；历史流量仅在加入监控后由每日快照累积。",
+      sourceNote: "平台历史价格使用 Keepa 售价、Buy Box 与 Deal 价格轨迹，不等同于本产品每日按 Coupon 换算的折后价；销量估算和流量仅在加入监控后由每日快照累积。",
     };
   } finally {
     await client.close();
@@ -196,7 +207,8 @@ export async function analyzeAsin(marketplace: string, asin: string): Promise<An
 
   try {
     const call = (name: string, args: AnyRecord) => client.callTool({ name, arguments: args });
-    const mediaEnd = Date.now();
+    const capturedAt = new Date();
+    const mediaEnd = capturedAt.getTime();
     const [detailResult, competitorResult, keywordResult, relationResult, salesResult, mediaResult] = await Promise.all([
       call("asin_detail_with_coupon_trend", { asin, marketplace }),
       call("asin_competitor", { asin, marketplace, size: 8 }),
@@ -209,7 +221,7 @@ export async function analyzeAsin(marketplace: string, asin: string): Promise<An
         dailyLatest: true,
         startTimestamp: mediaEnd - 2 * 86400000,
         endTimestamp: mediaEnd,
-        returnFields: "asin,title,brand,imageUrl,zoomImageUrl,imageUrls",
+        returnFields: "asin,title,brand,imageUrl,zoomImageUrl,imageUrls,dealPrice",
       }).catch(() => null),
     ]);
 
@@ -230,6 +242,11 @@ export async function analyzeAsin(marketplace: string, asin: string): Promise<An
     const detailPrice = typeof detailAsin.price === "number" ? detailAsin.price : null;
     const lookupPrice = typeof seed.price === "number" ? seed.price : null;
     const pricing = effectivePrice(detailPrice ?? lookupPrice, detailAsin.coupon);
+    const dealObservation = recentDealObservation(media.dealPrice, mediaEnd);
+    const dealPrice = dealObservation?.value ?? null;
+    const dealActive = Array.isArray(media.dealPrice) ? dealPrice !== null : null;
+    const currentEffectivePrice = dealActive && dealPrice !== null ? dealPrice : pricing.value;
+    const priceNote = dealActive && dealPrice !== null ? "当前检测到 Amazon Deal 价格；未叠加 Coupon" : pricing.note;
     const priceConflict = detailPrice !== null && lookupPrice !== null && Math.abs(detailPrice - lookupPrice) >= 0.5;
     const relations = Number(relationStat.relations ?? 0);
     const freeRelations = Number(relationStat.freeRelations ?? 0);
@@ -258,6 +275,8 @@ export async function analyzeAsin(marketplace: string, asin: string): Promise<An
       const gap = ((lookupPrice - medianPrice) / medianPrice) * 100;
       conclusions.push({ severity: Math.abs(gap) >= 15 ? "medium" : "info", title: gap < 0 ? "价格低于竞品中位数" : "价格高于竞品中位数", body: `当前可比价比直接竞品中位数${gap < 0 ? "低" : "高"} ${Math.abs(gap).toFixed(1)}%。` });
     }
+    if (dealActive && dealPrice !== null) conclusions.unshift({ severity: "high", title: "当前检测到 Amazon Deal", body: `Deal 价格为 ${dealPrice} ${CURRENCIES[marketplace] ?? "USD"}；需结合结束后的销量、BSR 与流量判断促销增量。` });
+    else if (pricing.couponActive) conclusions.unshift({ severity: "info", title: "当前存在 Coupon", body: pricing.couponFinalPrice !== null ? `Coupon 后价格为 ${pricing.couponFinalPrice}。` : "Coupon 无法可靠换算，已保留原始优惠说明。" });
     const trend = (sales?.salesTrendPoints ?? []).filter((point: AnyRecord) => point.month !== new Date().toISOString().slice(0, 7));
     if (trend.length >= 2) {
       const previous = trend[trend.length - 2]?.parentUnitSales;
@@ -269,7 +288,7 @@ export async function analyzeAsin(marketplace: string, asin: string): Promise<An
     }
     if (!conclusions.length) conclusions.push({ severity: "info", title: "已建立首份基线", body: "本次没有历史快照，需等下一次同口径采集后才能生成变化告警。" });
 
-    const dataNotes = ["月销量和销售额为 SellerSprite 估算值，不是 Amazon 后台实际订单。"];
+    const dataNotes = ["月销量、销量增长率和销售额为 SellerSprite 估算值，不是 Amazon 后台实际订单。", "Coupon 来自商品详情；Amazon Deal 信号来自近 36 小时 Keepa dealPrice，不将历史 Deal 自动视为当前活动。"];
     dataNotes.push(Object.keys(media).length
       ? "Listing 标题、五点和属性来自详情接口，图片组来自 Keepa；按每日快照和上一自然日比较。"
       : "Listing 标题、五点和属性已留存；本次 Keepa 图片组不可用，仅保存详情主图。");
@@ -277,26 +296,51 @@ export async function analyzeAsin(marketplace: string, asin: string): Promise<An
 
     return {
       sourceVersion: 2,
+      salesVersion: 1,
+      promotionVersion: 1,
       listingVersion: 1,
       marketplace,
       asin,
-      capturedAt: new Date().toISOString(),
+      capturedAt: capturedAt.toISOString(),
       title: listingTitle,
       brand: detailAsin.brand ?? seed.brand ?? "",
       amazonUrl: `https://www.${AMAZON_DOMAINS[marketplace]}/dp/${asin}`,
       currency: CURRENCIES[marketplace] ?? "USD",
       healthScore: healthScore(seed.rating ?? null, freeShare, priceConflict),
       metrics: {
-        price: pricing.value ?? detailPrice ?? lookupPrice,
+        price: currentEffectivePrice ?? detailPrice ?? lookupPrice,
         listPrice: detailPrice ?? lookupPrice,
-        effectivePrice: pricing.value,
+        effectivePrice: currentEffectivePrice,
         coupon: pricing.coupon,
-        priceNote: pricing.note,
+        priceNote,
         bsr: detailAsin.bsrRank ?? null,
         rating: detailAsin.rating ?? null,
         reviews: detailAsin.ratings ?? null,
         monthlyUnits: seed.units ?? null,
+        monthlyUnitsGrowthPercent: seed.unitsGr ?? null,
         monthlyRevenue: seed.revenue ?? null,
+      },
+      salesMeta: {
+        source: "competitor_lookup",
+        estimate: true,
+        period: null,
+      },
+      promotion: {
+        couponActive: pricing.couponActive,
+        couponType: pricing.couponType,
+        couponValue: pricing.couponValue,
+        couponFinalPrice: pricing.couponFinalPrice,
+        primePrice: typeof detailAsin.primePrice === "number" && detailAsin.primePrice > 0 ? detailAsin.primePrice : null,
+        dealActive,
+        dealType: null,
+        dealPrice,
+        dealStartAt: typeof dealObservation?.timePoint === "number" ? new Date(dealObservation.timePoint).toISOString() : null,
+        dealEndAt: null,
+      },
+      promotionChanges: {
+        baseline: true,
+        changed: false,
+        summaries: ["已建立促销基线"],
       },
       traffic: {
         naturalKeywords,
@@ -310,7 +354,7 @@ export async function analyzeAsin(marketplace: string, asin: string): Promise<An
       actions: [
         medianRating !== null && typeof seed.rating === "number" && seed.rating < medianRating ? "优先分析近期 1–3 星评论，找出评分差距。" : "保持当前评分优势并监控新增差评主题。",
         freeShare !== null && freeShare >= 75 ? "守住自然关键词，不因竞品加广告就盲目跟投。" : "检查高流量词的自然排名与广告投入效率。",
-        "明天按同一接口复查折后价、BSR、评分和核心流量，形成首个日环比。",
+        "明天按同一接口复查销量、Deal/Coupon、折后价、BSR、评分和核心流量，形成首个日环比。",
       ],
       dataNotes,
       listing: {
@@ -332,11 +376,15 @@ export async function analyzeAsin(marketplace: string, asin: string): Promise<An
       },
       history: [],
       changes: {
-        effectivePrice: emptyChange(pricing.value),
+        effectivePrice: emptyChange(currentEffectivePrice),
         rating: emptyChange(detailAsin.rating ?? null),
         bsr: emptyChange(detailAsin.bsrRank ?? null),
         naturalKeywords: emptyChange(naturalKeywords),
         freeShare: emptyChange(freeShare),
+        monthlyUnits: emptyChange(seed.units ?? null),
+        monthlyUnitsGrowthPercent: emptyChange(seed.unitsGr ?? null),
+        monthlyRevenue: emptyChange(seed.revenue ?? null),
+        dealPrice: emptyChange(dealPrice),
       },
       comparisonCapturedAt: null,
     };

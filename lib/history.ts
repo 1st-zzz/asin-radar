@@ -1,4 +1,4 @@
-import type { AnalysisResult, HistoryPoint, ListingChange, ListingSnapshot, MetricChange, Severity } from "./demo-data";
+import type { AnalysisResult, HistoryPoint, ListingChange, ListingSnapshot, MetricChange, PromotionChange, PromotionSnapshot, Severity } from "./demo-data";
 
 function emptyChange(current: number | null): MetricChange {
   return { current, previous: null, absolute: null, percent: null, direction: "new", favorable: null };
@@ -16,6 +16,10 @@ function baselineListingChange(): ListingChange {
     imageOrderChanged: false,
     summaries: ["已建立 Listing 基线"],
   };
+}
+
+function baselinePromotionChange(): PromotionChange {
+  return { baseline: true, changed: false, summaries: ["已建立促销基线"] };
 }
 
 function normalizeText(value: string | null | undefined) {
@@ -62,6 +66,21 @@ function compareListing(current: ListingSnapshot, previous: ListingSnapshot | nu
   };
 }
 
+function comparePromotion(current: PromotionSnapshot, previous: PromotionSnapshot | null): PromotionChange {
+  if (!previous) return baselinePromotionChange();
+  const summaries: string[] = [];
+  if (typeof current.dealActive === "boolean" && typeof previous.dealActive === "boolean" && current.dealActive !== previous.dealActive) {
+    summaries.push(current.dealActive ? "Amazon Deal 已开始" : "Amazon Deal 已结束");
+  }
+  if (current.dealType && previous.dealType && current.dealType !== previous.dealType) summaries.push(`Deal 类型由 ${previous.dealType} 改为 ${current.dealType}`);
+  if (typeof current.couponActive === "boolean" && typeof previous.couponActive === "boolean" && current.couponActive !== previous.couponActive) {
+    summaries.push(current.couponActive ? "Coupon 已开始" : "Coupon 已结束");
+  }
+  if (current.couponActive && previous.couponActive && current.couponType && previous.couponType && current.couponType !== previous.couponType) summaries.push("Coupon 类型已变化");
+  if (current.couponActive && previous.couponActive && current.couponType === previous.couponType && current.couponValue !== null && previous.couponValue !== null && current.couponValue !== previous.couponValue) summaries.push("Coupon 优惠值已变化");
+  return { baseline: false, changed: summaries.length > 0, summaries };
+}
+
 export function hydrateResult(input: Partial<AnalysisResult>): AnalysisResult {
   const metrics = input.metrics ?? ({} as AnalysisResult["metrics"]);
   const traffic = input.traffic ?? ({} as AnalysisResult["traffic"]);
@@ -70,6 +89,8 @@ export function hydrateResult(input: Partial<AnalysisResult>): AnalysisResult {
   return {
     ...result,
     sourceVersion: input.sourceVersion ?? 1,
+    salesVersion: input.salesVersion ?? 0,
+    promotionVersion: input.promotionVersion ?? 0,
     listingVersion: input.listingVersion ?? 0,
     metrics: {
       ...metrics,
@@ -78,7 +99,24 @@ export function hydrateResult(input: Partial<AnalysisResult>): AnalysisResult {
       effectivePrice,
       coupon: metrics.coupon ?? null,
       priceNote: metrics.priceNote ?? "历史口径",
+      monthlyUnits: metrics.monthlyUnits ?? null,
+      monthlyUnitsGrowthPercent: metrics.monthlyUnitsGrowthPercent ?? null,
+      monthlyRevenue: metrics.monthlyRevenue ?? null,
     },
+    salesMeta: input.salesMeta ?? { source: "legacy", estimate: true, period: null },
+    promotion: input.promotion ?? {
+      couponActive: metrics.coupon ? true : null,
+      couponType: null,
+      couponValue: metrics.coupon ?? null,
+      couponFinalPrice: null,
+      primePrice: null,
+      dealActive: null,
+      dealType: null,
+      dealPrice: null,
+      dealStartAt: null,
+      dealEndAt: null,
+    },
+    promotionChanges: input.promotionChanges ?? baselinePromotionChange(),
     listing: input.listing ?? {
       title: input.title ?? "",
       bullets: [],
@@ -93,6 +131,10 @@ export function hydrateResult(input: Partial<AnalysisResult>): AnalysisResult {
       bsr: emptyChange(metrics.bsr ?? null),
       naturalKeywords: emptyChange(traffic.naturalKeywords ?? null),
       freeShare: emptyChange(traffic.freeShare ?? null),
+      monthlyUnits: emptyChange(metrics.monthlyUnits ?? null),
+      monthlyUnitsGrowthPercent: emptyChange(metrics.monthlyUnitsGrowthPercent ?? null),
+      monthlyRevenue: emptyChange(metrics.monthlyRevenue ?? null),
+      dealPrice: emptyChange(input.promotion?.dealPrice ?? null),
     },
     comparisonCapturedAt: null,
   };
@@ -109,6 +151,10 @@ export function toHistoryPoint(result: AnalysisResult): HistoryPoint {
     adKeywords: result.traffic.adKeywords,
     freeShare: result.traffic.freeShare,
     paidShare: result.traffic.paidShare,
+    monthlyUnits: result.metrics.monthlyUnits,
+    monthlyUnitsGrowthPercent: result.metrics.monthlyUnitsGrowthPercent,
+    monthlyRevenue: result.metrics.monthlyRevenue,
+    dealPrice: result.promotion.dealPrice,
   };
 }
 
@@ -174,27 +220,65 @@ function changeConclusion(changes: AnalysisResult["changes"]): Array<{ severity:
       body: `由 ${freeShare.previous?.toFixed(1)}% 变为 ${freeShare.current?.toFixed(1)}%。`,
     });
   }
+
+  const monthlyUnits = changes.monthlyUnits;
+  if (monthlyUnits.percent !== null && Math.abs(monthlyUnits.percent) >= 25) {
+    conclusions.push({
+      severity: "high",
+      title: `月销量估算${monthlyUnits.direction === "up" ? "上升" : "下降"} ${Math.abs(monthlyUnits.percent).toFixed(1)}%`,
+      body: `由 ${monthlyUnits.previous} 变为 ${monthlyUnits.current}；这是 SellerSprite 估算值，不是后台真实订单。`,
+    });
+  }
+
+  const growth = changes.monthlyUnitsGrowthPercent;
+  if (growth.absolute !== null && Math.abs(growth.absolute) >= 20) {
+    const reversed = (growth.previous ?? 0) > 0 && (growth.current ?? 0) < 0 || (growth.previous ?? 0) < 0 && (growth.current ?? 0) > 0;
+    conclusions.push({
+      severity: reversed ? "high" : "medium",
+      title: reversed ? "销量增长方向发生反转" : "销量增长率明显变化",
+      body: `由 ${growth.previous?.toFixed(1)}% 变为 ${growth.current?.toFixed(1)}%，变化 ${Math.abs(growth.absolute).toFixed(1)} 个百分点。`,
+    });
+  }
+
+  const dealPrice = changes.dealPrice;
+  if (dealPrice.percent !== null && Math.abs(dealPrice.percent) >= 10) {
+    conclusions.push({
+      severity: "high",
+      title: `Deal 价格${dealPrice.direction === "up" ? "上涨" : "下降"} ${Math.abs(dealPrice.percent).toFixed(1)}%`,
+      body: `由 ${dealPrice.previous} 变为 ${dealPrice.current}，仅比较明确的 Deal 价格记录。`,
+    });
+  }
   return conclusions;
 }
 
 export function decorateWithHistory(currentInput: AnalysisResult, previousInputs: AnalysisResult[]) {
   const current = hydrateResult(currentInput);
-  const compatible = previousInputs
-    .map(hydrateResult)
+  const hydratedPrevious = previousInputs.map(hydrateResult);
+  const compatible = hydratedPrevious
     .filter((item) => item.sourceVersion === current.sourceVersion && item.capturedAt !== current.capturedAt);
   const history = dailyPoints([...compatible, current]);
   const prior = history.length > 1 ? history[history.length - 2] : null;
+  const currentDay = current.capturedAt.slice(0, 10);
+  const salesPrior = hydratedPrevious
+    .filter((item) => item.salesVersion === current.salesVersion && item.salesVersion > 0 && item.salesMeta.source === current.salesMeta.source && item.salesMeta.estimate === current.salesMeta.estimate && item.capturedAt.slice(0, 10) !== currentDay)
+    .sort((a, b) => Date.parse(b.capturedAt) - Date.parse(a.capturedAt))[0] ?? null;
+  const promotionPrior = hydratedPrevious
+    .filter((item) => item.promotionVersion === current.promotionVersion && item.promotionVersion > 0 && item.capturedAt.slice(0, 10) !== currentDay)
+    .sort((a, b) => Date.parse(b.capturedAt) - Date.parse(a.capturedAt))[0] ?? null;
   const changes = {
     effectivePrice: change(current.metrics.effectivePrice, prior?.effectivePrice ?? null, "neutral"),
     rating: change(current.metrics.rating, prior?.rating ?? null, "up"),
     bsr: change(current.metrics.bsr, prior?.bsr ?? null, "down"),
     naturalKeywords: change(current.traffic.naturalKeywords, prior?.naturalKeywords ?? null, "up"),
     freeShare: change(current.traffic.freeShare, prior?.freeShare ?? null, "up"),
+    monthlyUnits: change(current.metrics.monthlyUnits, salesPrior?.metrics.monthlyUnits ?? null, "up"),
+    monthlyUnitsGrowthPercent: change(current.metrics.monthlyUnitsGrowthPercent, salesPrior?.metrics.monthlyUnitsGrowthPercent ?? null, "up"),
+    monthlyRevenue: change(current.metrics.monthlyRevenue, salesPrior?.metrics.monthlyRevenue ?? null, "up"),
+    dealPrice: change(current.promotion.dealPrice, promotionPrior?.promotion.dealPrice ?? null, "neutral"),
   };
   const deltaConclusions = prior
     ? changeConclusion(changes)
-    : [{ severity: "info" as const, title: "已建立每日监控基线", body: "下一自然日再次抓取后，将显示折后价、评分、BSR 与核心流量变化。" }];
-  const currentDay = current.capturedAt.slice(0, 10);
+    : [{ severity: "info" as const, title: "已建立每日监控基线", body: "下一自然日再次抓取后，将显示销量、Deal/Coupon、折后价、评分、BSR 与核心流量变化。" }];
   const previousListing = previousInputs
     .map(hydrateResult)
     .filter((item) => item.listingVersion === current.listingVersion && item.listingVersion > 0 && item.capturedAt.slice(0, 10) !== currentDay)
@@ -207,14 +291,23 @@ export function decorateWithHistory(currentInput: AnalysisResult, previousInputs
         body: listingChanges.summaries.join("；") + "。",
       }]
     : [];
+  const promotionChanges = comparePromotion(current.promotion, promotionPrior?.promotion ?? null);
+  const promotionConclusions = promotionChanges.changed
+    ? [{
+        severity: promotionChanges.summaries.some((item) => item.includes("Deal 已开始")) ? "high" as const : "medium" as const,
+        title: `促销状态发生 ${promotionChanges.summaries.length} 项变化`,
+        body: promotionChanges.summaries.join("；") + "。",
+      }]
+    : [];
 
   return {
     ...current,
     history,
     changes,
+    promotionChanges,
     listingChanges,
     comparisonCapturedAt: prior?.capturedAt ?? null,
-    conclusions: [...listingConclusions, ...deltaConclusions, ...current.conclusions],
+    conclusions: [...promotionConclusions, ...listingConclusions, ...deltaConclusions, ...current.conclusions],
   };
 }
 

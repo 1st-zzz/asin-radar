@@ -19,6 +19,29 @@ export type HistoryPoint = {
   adKeywords: number | null;
   freeShare: number | null;
   paidShare: number | null;
+  monthlyUnits: number | null;
+  monthlyUnitsGrowthPercent: number | null;
+  monthlyRevenue: number | null;
+  dealPrice: number | null;
+};
+
+export type PromotionSnapshot = {
+  couponActive: boolean | null;
+  couponType: "amount" | "percent" | "text" | null;
+  couponValue: number | string | null;
+  couponFinalPrice: number | null;
+  primePrice: number | null;
+  dealActive: boolean | null;
+  dealType: string | null;
+  dealPrice: number | null;
+  dealStartAt: string | null;
+  dealEndAt: string | null;
+};
+
+export type PromotionChange = {
+  baseline: boolean;
+  changed: boolean;
+  summaries: string[];
 };
 
 export type ListingSnapshot = {
@@ -42,6 +65,8 @@ export type ListingChange = {
 
 export type AnalysisResult = {
   sourceVersion: number;
+  salesVersion: number;
+  promotionVersion: number;
   listingVersion: number;
   marketplace: string;
   asin: string;
@@ -61,8 +86,16 @@ export type AnalysisResult = {
     rating: number | null;
     reviews: number | null;
     monthlyUnits: number | null;
+    monthlyUnitsGrowthPercent: number | null;
     monthlyRevenue: number | null;
   };
+  salesMeta: {
+    source: string;
+    estimate: boolean;
+    period: string | null;
+  };
+  promotion: PromotionSnapshot;
+  promotionChanges: PromotionChange;
   traffic: {
     naturalKeywords: number | null;
     adKeywords: number | null;
@@ -90,6 +123,10 @@ export type AnalysisResult = {
     bsr: MetricChange;
     naturalKeywords: MetricChange;
     freeShare: MetricChange;
+    monthlyUnits: MetricChange;
+    monthlyUnitsGrowthPercent: MetricChange;
+    monthlyRevenue: MetricChange;
+    dealPrice: MetricChange;
   };
   comparisonCapturedAt: string | null;
 };
@@ -101,6 +138,7 @@ export type PlatformHistoryPoint = {
   marketPrice: number | null;
   listPrice: number | null;
   buyBoxPrice: number | null;
+  dealPrice: number | null;
   bsr: number | null;
   rating: number | null;
   reviews: number | null;
@@ -127,6 +165,8 @@ export type HistoryQueryResponse = {
 
 export const demoResult: AnalysisResult = {
   sourceVersion: 2,
+  salesVersion: 1,
+  promotionVersion: 1,
   listingVersion: 1,
   marketplace: "DE",
   asin: "B0DPDKLHYM",
@@ -146,7 +186,30 @@ export const demoResult: AnalysisResult = {
     rating: 4.0,
     reviews: 347,
     monthlyUnits: 682,
+    monthlyUnitsGrowthPercent: 18.4,
     monthlyRevenue: 15467.76,
+  },
+  salesMeta: {
+    source: "competitor_lookup",
+    estimate: true,
+    period: null,
+  },
+  promotion: {
+    couponActive: false,
+    couponType: null,
+    couponValue: null,
+    couponFinalPrice: null,
+    primePrice: null,
+    dealActive: false,
+    dealType: null,
+    dealPrice: null,
+    dealStartAt: null,
+    dealEndAt: null,
+  },
+  promotionChanges: {
+    baseline: true,
+    changed: false,
+    summaries: ["已建立促销基线"],
   },
   traffic: {
     naturalKeywords: 130,
@@ -200,6 +263,10 @@ export const demoResult: AnalysisResult = {
     bsr: { current: 229700, previous: null, absolute: null, percent: null, direction: "new", favorable: null },
     naturalKeywords: { current: 130, previous: null, absolute: null, percent: null, direction: "new", favorable: null },
     freeShare: { current: 93.05, previous: null, absolute: null, percent: null, direction: "new", favorable: null },
+    monthlyUnits: { current: 682, previous: null, absolute: null, percent: null, direction: "new", favorable: null },
+    monthlyUnitsGrowthPercent: { current: 18.4, previous: null, absolute: null, percent: null, direction: "new", favorable: null },
+    monthlyRevenue: { current: 15467.76, previous: null, absolute: null, percent: null, direction: "new", favorable: null },
+    dealPrice: { current: null, previous: null, absolute: null, percent: null, direction: "new", favorable: null },
   },
   comparisonCapturedAt: null,
 };

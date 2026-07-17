@@ -12,11 +12,14 @@ import type {
 
 const MARKETPLACES = ["US", "JP", "UK", "DE", "FR", "IT", "ES", "CA", "IN", "MX", "BR", "AU", "AE"];
 type ViewMode = "monitor" | "history";
-type SnapshotMetric = "effectivePrice" | "rating" | "bsr" | "naturalKeywords" | "freeShare";
-type PlatformMetric = "marketPrice" | "bsr" | "rating" | "reviews";
+type SnapshotMetric = "effectivePrice" | "monthlyUnits" | "monthlyRevenue" | "dealPrice" | "rating" | "bsr" | "naturalKeywords" | "freeShare";
+type PlatformMetric = "marketPrice" | "dealPrice" | "bsr" | "rating" | "reviews";
 
 const SNAPSHOT_METRICS: Array<{ key: SnapshotMetric; label: string }> = [
   { key: "effectivePrice", label: "折后价" },
+  { key: "monthlyUnits", label: "月销量" },
+  { key: "monthlyRevenue", label: "月销售额" },
+  { key: "dealPrice", label: "Deal 价格" },
   { key: "rating", label: "评分" },
   { key: "bsr", label: "BSR" },
   { key: "naturalKeywords", label: "自然词" },
@@ -24,6 +27,7 @@ const SNAPSHOT_METRICS: Array<{ key: SnapshotMetric; label: string }> = [
 ];
 const PLATFORM_METRICS: Array<{ key: PlatformMetric; label: string }> = [
   { key: "marketPrice", label: "平台售价" },
+  { key: "dealPrice", label: "Deal 价格" },
   { key: "bsr", label: "BSR" },
   { key: "rating", label: "评分" },
   { key: "reviews", label: "评论数" },
@@ -97,7 +101,7 @@ function Bars({ points, values, labels, formatter }: { points: string[]; values:
 
 function SnapshotChart({ result, metric }: { result: AnalysisResult; metric: SnapshotMetric }) {
   const history = result.history.slice(-30);
-  const formatter = (value: number | null) => metric === "effectivePrice" ? formatMoney(value, result.currency) : metric === "rating" || metric === "freeShare" ? `${formatNumber(value, 1)}${metric === "freeShare" ? "%" : ""}` : formatNumber(value);
+  const formatter = (value: number | null) => metric === "effectivePrice" || metric === "monthlyRevenue" || metric === "dealPrice" ? formatMoney(value, result.currency) : metric === "rating" || metric === "freeShare" ? `${formatNumber(value, 1)}${metric === "freeShare" ? "%" : ""}` : formatNumber(value);
   return <Bars points={history.map((point) => point.capturedAt)} labels={history.map((point) => formatDate(point.capturedAt))} values={history.map((point: HistoryPoint) => point[metric])} formatter={formatter} />;
 }
 
@@ -105,7 +109,7 @@ function PlatformChart({ response, metric }: { response: HistoryQueryResponse; m
   const source = response.platform.points.filter((point) => point[metric] !== null);
   const step = Math.max(1, Math.ceil(source.length / 24));
   const points = source.filter((_, index) => index % step === 0 || index === source.length - 1);
-  const formatter = (value: number | null) => metric === "marketPrice" ? formatMoney(value, response.platform.currency) : metric === "rating" ? formatNumber(value, 1) : formatNumber(value);
+  const formatter = (value: number | null) => metric === "marketPrice" || metric === "dealPrice" ? formatMoney(value, response.platform.currency) : metric === "rating" ? formatNumber(value, 1) : formatNumber(value);
   return <Bars points={points.map((point) => point.capturedAt)} labels={points.map((point) => formatDate(point.capturedAt))} values={points.map((point: PlatformHistoryPoint) => point[metric])} formatter={formatter} />;
 }
 
@@ -116,6 +120,14 @@ function SnapshotDetail({ result }: { result: AnalysisResult }) {
     : result.listingChanges.changed
       ? `${result.listingChanges.summaries.length} 项变动`
       : "无变动";
+  const promotionLabel = result.promotion.dealActive
+    ? "Amazon Deal"
+    : result.promotion.couponActive
+      ? "Coupon"
+      : result.promotion.dealActive === null && result.promotion.couponActive === null
+        ? "数据待补充"
+        : "未检测到活动";
+  const promotionTone = result.promotion.dealActive ? "deal" : result.promotion.couponActive ? "coupon" : "quiet";
   return (
     <article className="product-card detail-card">
       <div className="detail-heading">
@@ -124,11 +136,21 @@ function SnapshotDetail({ result }: { result: AnalysisResult }) {
       </div>
       <div className="kpi-strip">
         <div><span>折后价</span><strong>{formatMoney(result.metrics.effectivePrice, result.currency)}</strong><DeltaBadge change={result.changes.effectivePrice} /><small>{result.metrics.priceNote}</small></div>
+        <div><span>月销量估算</span><strong>{formatNumber(result.metrics.monthlyUnits)}</strong><DeltaBadge change={result.changes.monthlyUnits} /><small>增长率 {result.metrics.monthlyUnitsGrowthPercent === null ? "—" : `${result.metrics.monthlyUnitsGrowthPercent > 0 ? "+" : ""}${formatNumber(result.metrics.monthlyUnitsGrowthPercent, 1)}%`}</small></div>
+        <div><span>Deal / Coupon</span><strong className={`promotion-value ${promotionTone}`}>{promotionLabel}</strong>{result.promotion.dealPrice !== null ? <DeltaBadge change={result.changes.dealPrice} /> : <span className="delta quiet">状态监控</span>}<small>{result.promotion.dealPrice !== null ? formatMoney(result.promotion.dealPrice, result.currency) : result.promotion.couponFinalPrice !== null ? `券后 ${formatMoney(result.promotion.couponFinalPrice, result.currency)}` : "促销与价格分开记录"}</small></div>
         <div><span>评分</span><strong>{formatNumber(result.metrics.rating, 1)}</strong><DeltaBadge change={result.changes.rating} mode="absolute" /><small>{formatNumber(result.metrics.reviews)} 个评分</small></div>
         <div><span>主类 BSR</span><strong>{formatNumber(result.metrics.bsr)}</strong><DeltaBadge change={result.changes.bsr} /><small>数字越低越好</small></div>
-        <div><span>自然关键词</span><strong>{formatNumber(result.traffic.naturalKeywords)}</strong><DeltaBadge change={result.changes.naturalKeywords} /><small>广告词 {formatNumber(result.traffic.adKeywords)}</small></div>
-        <div><span>免费流量</span><strong>{formatNumber(result.traffic.freeShare, 1)}%</strong><DeltaBadge change={result.changes.freeShare} mode="absolute" suffix="pp" /><small>付费 {formatNumber(result.traffic.paidShare, 1)}%</small></div>
+        <div><span>核心流量</span><strong>{formatNumber(result.traffic.naturalKeywords)} 自然词</strong><DeltaBadge change={result.changes.freeShare} mode="absolute" suffix="pp" /><small>免费 {formatNumber(result.traffic.freeShare, 1)}% · 广告词 {formatNumber(result.traffic.adKeywords)}</small></div>
       </div>
+      <section className="promotion-panel">
+        <div className="promotion-heading"><div><span className="section-label">Promotion Watch</span><h3>销量与促销状态</h3></div><span className={`promotion-badge ${promotionTone}`}>{promotionLabel}</span></div>
+        <div className="promotion-grid">
+          <div><span>月销售额估算</span><strong>{formatMoney(result.metrics.monthlyRevenue, result.currency)}</strong><DeltaBadge change={result.changes.monthlyRevenue} /><small>来源：SellerSprite · 估算值</small></div>
+          <div><span>Amazon Deal</span><strong>{result.promotion.dealActive ? formatMoney(result.promotion.dealPrice, result.currency) : result.promotion.dealActive === false ? "未检测到" : "暂无数据"}</strong><small>{result.promotion.dealStartAt ? `最近信号 ${formatDate(result.promotion.dealStartAt, true)}` : "与 Coupon 分开判断"}</small></div>
+          <div><span>Coupon</span><strong>{result.promotion.couponActive ? result.promotion.couponValue ?? "已开启" : result.promotion.couponActive === false ? "未开启" : "暂无数据"}</strong><small>{result.promotion.couponFinalPrice !== null ? `券后 ${formatMoney(result.promotion.couponFinalPrice, result.currency)}` : "不默认与 Deal 叠加"}</small></div>
+          <div className="promotion-change"><span>{result.promotionChanges.baseline ? "促销基线" : "相较上一自然日"}</span><strong>{result.promotionChanges.baseline ? "已开始留存" : result.promotionChanges.changed ? `${result.promotionChanges.summaries.length} 项变化` : "状态稳定"}</strong><small>{result.promotionChanges.summaries.join("；")}</small></div>
+        </div>
+      </section>
       <section className="listing-panel">
         <div className="listing-panel-heading">
           <div><span className="section-label">Listing Watch</span><h3>图片与文案变动</h3></div>
@@ -201,7 +223,7 @@ export default function Home() {
   }, []);
 
   const selected = useMemo(() => results.find((item) => `${item.marketplace}:${item.asin}` === selectedKey) ?? results[0], [results, selectedKey]);
-  const changedCount = results.filter((item) => item.listingChanges.changed || Object.values(item.changes).some((change) => change.previous !== null && change.direction !== "flat")).length;
+  const changedCount = results.filter((item) => item.listingChanges.changed || item.promotionChanges.changed || Object.values(item.changes).some((change) => change.previous !== null && change.direction !== "flat")).length;
   const latestCapture = results.reduce<string | null>((latest, item) => !latest || Date.parse(item.capturedAt) > Date.parse(latest) ? item.capturedAt : latest, null);
 
   async function handleSync(event: FormEvent) {
@@ -300,27 +322,51 @@ export default function Home() {
             <section className="overview-grid">
               <div className="overview-card accent"><span>监控对象</span><strong>{results.length}</strong><small>跨 {new Set(results.map((item) => item.marketplace)).size} 个站点</small></div>
               <div className="overview-card"><span>今日有变化</span><strong>{changedCount}</strong><small>相较上一自然日</small></div>
-              <div className="overview-card"><span>需要重点关注</span><strong>{results.filter((item) => item.conclusions.some((entry) => entry.severity === "high")).length}</strong><small>价格、排名或流量异常</small></div>
+              <div className="overview-card"><span>需要重点关注</span><strong>{results.filter((item) => item.conclusions.some((entry) => entry.severity === "high")).length}</strong><small>销量、Deal、价格或排名异常</small></div>
               <div className="overview-card wide"><span>监控口径</span><strong>每日快照</strong><small>同一天取最后一次用于趋势</small></div>
             </section>
 
             <section className="product-card watchlist-card">
               <div className="card-heading"><div><span className="section-label">Watchlist</span><h2>监控列表</h2></div><span>{results.length} 个商品</span></div>
-              <div className="table-scroll"><table className="watch-table"><thead><tr><th>商品</th><th>折后价</th><th>评分</th><th>BSR</th><th>核心流量</th><th>Listing</th><th>最近同步</th><th /></tr></thead><tbody>{results.map((item) => { const key = `${item.marketplace}:${item.asin}`; return <tr key={key} className={selectedKey === key ? "selected" : ""} onClick={() => setSelectedKey(key)}><td><span className="market-pill">{item.marketplace}</span><span><strong>{item.asin}</strong><small>{item.brand || "品牌待识别"}</small></span></td><td><strong>{formatMoney(item.metrics.effectivePrice, item.currency)}</strong><DeltaBadge change={item.changes.effectivePrice} /></td><td><strong>{formatNumber(item.metrics.rating, 1)}</strong><DeltaBadge change={item.changes.rating} mode="absolute" /></td><td><strong>{formatNumber(item.metrics.bsr)}</strong><DeltaBadge change={item.changes.bsr} /></td><td><strong>{formatNumber(item.traffic.naturalKeywords)} 自然词</strong><small>免费 {formatNumber(item.traffic.freeShare, 1)}%</small></td><td><strong className={item.listingChanges.changed ? "listing-table-changed" : ""}>{item.listingChanges.baseline ? "已建基线" : item.listingChanges.changed ? `${item.listingChanges.summaries.length} 项变动` : "无变动"}</strong><small>{item.listing.imageUrls.length} 图 · {item.listing.bullets.length} 条五点</small></td><td><strong>{formatDate(item.capturedAt)}</strong><small>{item.history.length} 天记录</small></td><td><button type="button" className="history-link" onClick={(event) => { event.stopPropagation(); openHistory(item); }}>查历史</button></td></tr>; })}{!results.length && <tr><td className="empty-cell" colSpan={8}>还没有监控对象。上方输入 ASIN，建立第一份基线。</td></tr>}</tbody></table></div>
+              <div className="table-scroll">
+                <table className="watch-table">
+                  <thead><tr><th>商品</th><th>折后价</th><th>月销量</th><th>Deal / Coupon</th><th>评分</th><th>BSR</th><th>核心流量</th><th>Listing</th><th>最近同步</th><th /></tr></thead>
+                  <tbody>
+                    {results.map((item) => {
+                      const key = `${item.marketplace}:${item.asin}`;
+                      const promotionLabel = item.promotion.dealActive ? "Deal 进行中" : item.promotion.couponActive ? "Coupon" : item.promotion.dealActive === null && item.promotion.couponActive === null ? "待补充" : "无活动";
+                      const promotionTone = item.promotion.dealActive ? "deal" : item.promotion.couponActive ? "coupon" : "quiet";
+                      return <tr key={key} className={selectedKey === key ? "selected" : ""} onClick={() => setSelectedKey(key)}>
+                        <td><span className="market-pill">{item.marketplace}</span><span><strong>{item.asin}</strong><small>{item.brand || "品牌待识别"}</small></span></td>
+                        <td><strong>{formatMoney(item.metrics.effectivePrice, item.currency)}</strong><DeltaBadge change={item.changes.effectivePrice} /></td>
+                        <td><strong>{formatNumber(item.metrics.monthlyUnits)}</strong><DeltaBadge change={item.changes.monthlyUnits} /><small>{item.metrics.monthlyUnitsGrowthPercent === null ? "估算值" : `增长率 ${item.metrics.monthlyUnitsGrowthPercent > 0 ? "+" : ""}${formatNumber(item.metrics.monthlyUnitsGrowthPercent, 1)}%`}</small></td>
+                        <td><span className={`promotion-badge ${promotionTone}`}>{promotionLabel}</span><small>{item.promotion.dealPrice !== null ? formatMoney(item.promotion.dealPrice, item.currency) : item.promotion.couponFinalPrice !== null ? `券后 ${formatMoney(item.promotion.couponFinalPrice, item.currency)}` : "分开监控"}</small></td>
+                        <td><strong>{formatNumber(item.metrics.rating, 1)}</strong><DeltaBadge change={item.changes.rating} mode="absolute" /></td>
+                        <td><strong>{formatNumber(item.metrics.bsr)}</strong><DeltaBadge change={item.changes.bsr} /></td>
+                        <td><strong>{formatNumber(item.traffic.naturalKeywords)} 自然词</strong><small>免费 {formatNumber(item.traffic.freeShare, 1)}%</small></td>
+                        <td><strong className={item.listingChanges.changed ? "listing-table-changed" : ""}>{item.listingChanges.baseline ? "已建基线" : item.listingChanges.changed ? `${item.listingChanges.summaries.length} 项变动` : "无变动"}</strong><small>{item.listing.imageUrls.length} 图 · {item.listing.bullets.length} 条五点</small></td>
+                        <td><strong>{formatDate(item.capturedAt)}</strong><small>{item.history.length} 天记录</small></td>
+                        <td><button type="button" className="history-link" onClick={(event) => { event.stopPropagation(); openHistory(item); }}>查历史</button></td>
+                      </tr>;
+                    })}
+                    {!results.length && <tr><td className="empty-cell" colSpan={10}>还没有监控对象。上方输入 ASIN，建立第一份基线。</td></tr>}
+                  </tbody>
+                </table>
+              </div>
             </section>
             {selected && <SnapshotDetail result={selected} />}
           </div>
         ) : (
           <div className="page-content history-page">
             <section className="history-hero">
-              <div className="history-copy"><h2>查询 ASIN 历史表现</h2><p>查询平台历史价格、BSR、评分与评论轨迹；已加入监控的 ASIN 还可查看折后价和流量快照。</p></div>
+              <div className="history-copy"><h2>查询 ASIN 历史表现</h2><p>查询平台历史价格、Deal、BSR、评分与评论轨迹；已加入监控的 ASIN 还可查看销量估算、Coupon 和核心流量快照。</p></div>
               <form className="history-search" onSubmit={handleHistoryQuery}>
                 <label>查询对象</label><div className="history-fields"><select aria-label="历史查询站点" value={historyMarketplace} onChange={(event) => setHistoryMarketplace(event.target.value)}>{MARKETPLACES.map((item) => <option key={item}>{item}</option>)}</select><input value={historyAsin} onChange={(event) => setHistoryAsin(event.target.value.toUpperCase())} placeholder="输入 10 位 ASIN" maxLength={10} /><select aria-label="历史范围" value={historyDays} onChange={(event) => setHistoryDays(event.target.value)}><option value="30">近 30 天</option><option value="90">近 90 天</option><option value="180">近 180 天</option><option value="365">近 365 天</option></select><button type="submit" disabled={historyLoading}>{historyLoading ? "查询中…" : "查询历史"}</button></div><p role="status">{historyMessage}</p>
               </form>
             </section>
 
             {!historyResult ? (
-              <section className="history-empty-grid"><div className="history-empty-card"><span>01</span><strong>平台历史</strong><p>首次查询即可查看 SellerSprite Keepa 返回的过往售价、BSR、评分和评论数。</p></div><div className="history-empty-card"><span>02</span><strong>留存快照</strong><p>从加入监控开始，每日累积折后价和核心流量，生成严格同口径趋势。</p></div><div className="history-empty-card dark"><span>查询说明</span><strong>两种历史，分开标注</strong><p>平台轨迹用于回看过去；产品快照用于日常经营比较，不混用价格口径。</p></div></section>
+              <section className="history-empty-grid"><div className="history-empty-card"><span>01</span><strong>平台历史</strong><p>首次查询即可查看 SellerSprite Keepa 返回的过往售价、Deal 价格、BSR、评分和评论数。</p></div><div className="history-empty-card"><span>02</span><strong>留存快照</strong><p>从加入监控开始，每日累积销量估算、Deal/Coupon、折后价和核心流量。</p></div><div className="history-empty-card dark"><span>查询说明</span><strong>两种历史，分开标注</strong><p>平台轨迹用于回看过去；产品快照用于日常经营比较，不混用价格和销量口径。</p></div></section>
             ) : (
               <>
                 <section className="product-card history-product">
@@ -331,7 +377,7 @@ export default function Home() {
                   <div><span>最新平台售价</span><strong>{formatMoney(latestPlatformPoint?.marketPrice ?? null, historyResult.platform.currency)}</strong><small>{platformPriceChange === null ? "缺少期初可比价" : `${platformPriceChange >= 0 ? "上涨" : "下降"} ${Math.abs(platformPriceChange).toFixed(1)}%`}</small></div>
                   <div><span>最新 BSR</span><strong>{formatNumber(latestPlatformPoint?.bsr ?? null)}</strong><small>数字越低越好</small></div>
                   <div><span>最新评分</span><strong>{formatNumber(latestPlatformPoint?.rating ?? null, 1)}</strong><small>{formatNumber(latestPlatformPoint?.reviews ?? null)} 条评论</small></div>
-                  <div><span>本产品快照</span><strong>{historyResult.retained ? `${historyResult.retained.history.length} 天` : "未监控"}</strong><small>{historyResult.retained ? "可查看折后价与流量" : "同步今日数据后开始累积"}</small></div>
+                  <div><span>本产品快照</span><strong>{historyResult.retained ? `${historyResult.retained.history.length} 天` : "未监控"}</strong><small>{historyResult.retained ? "可查看销量、促销与流量" : "同步今日数据后开始累积"}</small></div>
                 </section>
                 <section className="product-card platform-chart-card">
                   <div className="card-heading"><div><span className="section-label">SellerSprite Keepa</span><h2>平台历史轨迹</h2></div><span>{historyResult.platform.points[0] ? `${formatDate(historyResult.platform.points[0].capturedAt)} — ${formatDate(historyResult.platform.points[historyResult.platform.points.length - 1].capturedAt)}` : "暂无数据"}</span></div>
@@ -339,7 +385,7 @@ export default function Home() {
                   <PlatformChart response={historyResult} metric={historyMetric} />
                   <p className="source-note">{historyResult.platform.sourceNote}</p>
                 </section>
-                {historyResult.retained ? <SnapshotDetail result={historyResult.retained} /> : <section className="start-monitoring"><div><span className="section-label">Start monitoring</span><h2>这个 ASIN 还没有产品快照</h2><p>平台历史可以回看过去；要持续追踪折后价和核心流量，需要从今天建立自己的监控基线。</p></div><button type="button" onClick={() => { setInput(`${historyMarketplace} ${historyAsin}`); setDefaultMarketplace(historyMarketplace); setView("monitor"); }}>去建立今日基线 →</button></section>}
+                {historyResult.retained ? <SnapshotDetail result={historyResult.retained} /> : <section className="start-monitoring"><div><span className="section-label">Start monitoring</span><h2>这个 ASIN 还没有产品快照</h2><p>平台历史可以回看过去；要持续追踪销量、Deal/Coupon、折后价和核心流量，需要从今天建立自己的监控基线。</p></div><button type="button" onClick={() => { setInput(`${historyMarketplace} ${historyAsin}`); setDefaultMarketplace(historyMarketplace); setView("monitor"); }}>去建立今日基线 →</button></section>}
               </>
             )}
           </div>
