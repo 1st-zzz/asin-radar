@@ -33,12 +33,14 @@ async function hashToken(token: string) {
 export async function getVisitorSession(request: Request): Promise<VisitorSession> {
   const existing = cookieValue(request.headers.get("cookie") ?? "", VISITOR_COOKIE);
   const token = existing && TOKEN_PATTERN.test(existing) ? existing : randomToken();
-  const secure = new URL(request.url).protocol === "https:" ? "; Secure" : "";
+  const cookiePolicy = new URL(request.url).protocol === "https:"
+    ? "; SameSite=None; Secure; Partitioned"
+    : "; SameSite=Lax";
   return {
     userId: await hashToken(token),
     setCookie: existing === token
       ? null
-      : `${VISITOR_COOKIE}=${token}; Path=/; Max-Age=${ONE_YEAR_SECONDS}; HttpOnly; SameSite=Lax${secure}`,
+      : `${VISITOR_COOKIE}=${token}; Path=/; Max-Age=${ONE_YEAR_SECONDS}; HttpOnly${cookiePolicy}`,
   };
 }
 
