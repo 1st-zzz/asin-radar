@@ -104,7 +104,9 @@ table { border-collapse: collapse; }
 .listing-table-changed { color: var(--orange); }
 .promotion-badge { display: inline-flex; align-items: center; min-height: 20px; padding: 3px 7px; border-radius: 5px; background: #f3f4f6; color: var(--muted); font-size: 8px; font-weight: 700; white-space: nowrap; }
 .promotion-badge.deal { background: #fef2f2; color: #b42318; }
+.promotion-badge.pd { background: #ecfdf3; color: #027a48; }
 .promotion-badge.coupon { background: var(--orange-soft); color: var(--orange); }
+.promotion-badge.mixed { background: #f5f3ff; color: #6941c6; }
 .promotion-badge.history { background: #eef2ff; color: #4338ca; }
 .promotion-badge.quiet { background: #f3f4f6; color: var(--muted); }
 .market-pill { width: 30px; height: 24px; display: grid; place-items: center; border-radius: 5px; background: var(--primary-soft); color: var(--primary-dark); font: 700 8px var(--font-geist-mono), monospace; }
@@ -133,13 +135,15 @@ table { border-collapse: collapse; }
 .kpi-strip .delta { margin-bottom: 5px; }
 .kpi-strip small { min-height: 20px; line-height: 1.4; }
 .promotion-value.deal { color: var(--red); }
+.promotion-value.pd { color: #027a48; }
 .promotion-value.coupon { color: var(--orange); }
+.promotion-value.mixed { color: #6941c6; }
 .promotion-value.history { color: #4338ca; }
 .promotion-value.quiet { color: #4b5563; }
 .promotion-panel { padding: 14px 16px; border-bottom: 1px solid var(--border); background: #fffdf9; }
 .promotion-heading { display: flex; align-items: end; justify-content: space-between; gap: 12px; }
 .promotion-heading h3 { margin: 0; font-size: 14px; font-weight: 650; }
-.promotion-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin-top: 11px; }
+.promotion-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; margin-top: 11px; }
 .promotion-grid > div { min-width: 0; padding: 10px 11px; border: 1px solid var(--border); border-radius: 6px; background: white; }
 .promotion-grid span, .promotion-grid small { display: block; color: var(--muted); font-size: 8px; }
 .promotion-grid strong { display: block; margin: 5px 0 4px; overflow: hidden; font-size: 13px; font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }

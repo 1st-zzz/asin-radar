@@ -131,7 +131,7 @@ function couponHistory(value: unknown): PromotionHistoryPoint[] {
       return {
         capturedAt: new Date(`${item.date}T12:00:00Z`).toISOString(),
         kind: "coupon" as const,
-        label: item.type === "P" ? "百分比 Coupon" : item.type === "M" ? "金额 Coupon" : "Coupon",
+        label: item.type === "P" ? "Coupon · 百分比" : item.type === "M" ? "Coupon · 金额" : "Coupon",
         listPrice,
         promotionPrice,
         discountAmount,
@@ -157,9 +157,22 @@ function dealHistory(value: unknown): PromotionHistoryPoint[] {
     .sort((a, b) => Date.parse(b.capturedAt) - Date.parse(a.capturedAt));
 }
 
-function mergePromotionHistory(couponTrends: unknown, dealPrices: unknown) {
+function pdHistory(primePrice: unknown, capturedAt: number): PromotionHistoryPoint[] {
+  if (typeof primePrice !== "number" || !Number.isFinite(primePrice) || primePrice <= 0) return [];
+  return [{
+    capturedAt: new Date(capturedAt).toISOString(),
+    kind: "pd",
+    label: "PD · Prime 专享",
+    listPrice: null,
+    promotionPrice: primePrice,
+    discountAmount: null,
+    discountPercent: null,
+  }];
+}
+
+function mergePromotionHistory(couponTrends: unknown, dealPrices: unknown, primePrice: unknown = null, capturedAt = Date.now()) {
   const seen = new Set<string>();
-  return [...couponHistory(couponTrends), ...dealHistory(dealPrices)]
+  return [...couponHistory(couponTrends), ...pdHistory(primePrice, capturedAt), ...dealHistory(dealPrices)]
     .sort((a, b) => Date.parse(b.capturedAt) - Date.parse(a.capturedAt))
     .filter((item) => {
       const key = `${item.kind}:${item.capturedAt.slice(0, 10)}:${item.promotionPrice}`;
@@ -264,7 +277,7 @@ export async function queryAsinHistory(marketplace: string, asin: string, rangeD
       const timestamp = Date.parse(capturedAt);
       return timestamp >= startTimestamp && timestamp <= endTimestamp;
     };
-    const promotionHistory = mergePromotionHistory(detail.couponTrends, data.dealPrice).filter((item) => inRange(item.capturedAt));
+    const promotionHistory = mergePromotionHistory(detail.couponTrends, data.dealPrice, detailAsin.primePrice, endTimestamp).filter((item) => inRange(item.capturedAt));
     return {
       marketplace,
       asin,
@@ -317,7 +330,7 @@ export async function analyzeAsin(marketplace: string, asin: string): Promise<An
     const relationStat = (toolData(relationResult) as AnyRecord) ?? {};
     const sales = (toolData(salesResult) as AnyRecord) ?? {};
     const media = (optionalToolData(mediaResult) as AnyRecord) ?? {};
-    const promotionHistory = mergePromotionHistory(detail?.couponTrends, media.dealPrice);
+    const promotionHistory = mergePromotionHistory(detail?.couponTrends, media.dealPrice, detailAsin.primePrice, mediaEnd);
     const candidateAsins = candidates.slice(0, 6).map((item) => item.asin).filter(Boolean);
     const lookupResult = await call("competitor_lookup", { request: { asins: [asin, ...candidateAsins], marketplace, variation: "Y", page: 1, size: 10 } });
     const lookup = (toolData(lookupResult) as AnyRecord)?.items ?? [];
@@ -328,6 +341,8 @@ export async function analyzeAsin(marketplace: string, asin: string): Promise<An
     const detailPrice = typeof detailAsin.price === "number" ? detailAsin.price : null;
     const lookupPrice = typeof seed.price === "number" ? seed.price : null;
     const pricing = effectivePrice(detailPrice ?? lookupPrice, detailAsin.coupon);
+    const pdPrice = typeof detailAsin.primePrice === "number" && detailAsin.primePrice > 0 ? detailAsin.primePrice : null;
+    const pdActive = typeof detailAsin.primePrice === "number" ? pdPrice !== null : null;
     const dealObservation = recentDealObservation(media.dealPrice, mediaEnd);
     const dealPrice = dealObservation?.value ?? null;
     const dealActive = Array.isArray(media.dealPrice) ? dealPrice !== null : null;
@@ -362,6 +377,7 @@ export async function analyzeAsin(marketplace: string, asin: string): Promise<An
       conclusions.push({ severity: Math.abs(gap) >= 15 ? "medium" : "info", title: gap < 0 ? "价格低于竞品中位数" : "价格高于竞品中位数", body: `当前可比价比直接竞品中位数${gap < 0 ? "低" : "高"} ${Math.abs(gap).toFixed(1)}%。` });
     }
     if (dealActive && dealPrice !== null) conclusions.unshift({ severity: "high", title: "当前检测到 Amazon Deal", body: `Deal 价格为 ${dealPrice} ${CURRENCIES[marketplace] ?? "USD"}；需结合结束后的销量、BSR 与流量判断促销增量。` });
+    else if (pdActive && pdPrice !== null) conclusions.unshift({ severity: "info", title: "当前存在 PD", body: `Prime 专享价为 ${pdPrice}；已与 Coupon、Amazon Deal 分开记录。` });
     else if (pricing.couponActive) conclusions.unshift({ severity: "info", title: "当前存在 Coupon", body: pricing.couponFinalPrice !== null ? `Coupon 后价格为 ${pricing.couponFinalPrice}。` : "Coupon 无法可靠换算，已保留原始优惠说明。" });
     const trend = (sales?.salesTrendPoints ?? []).filter((point: AnyRecord) => point.month !== new Date().toISOString().slice(0, 7));
     if (trend.length >= 2) {
@@ -374,7 +390,7 @@ export async function analyzeAsin(marketplace: string, asin: string): Promise<An
     }
     if (!conclusions.length) conclusions.push({ severity: "info", title: "已建立首份基线", body: "本次没有历史快照，需等下一次同口径采集后才能生成变化告警。" });
 
-    const dataNotes = ["月销量、销量增长率和销售额为 SellerSprite 估算值，不是 Amazon 后台实际订单。", `Coupon 来自商品详情，历史促销共返回 ${promotionHistory.length} 条；Amazon Deal 当前信号来自近 36 小时 Keepa dealPrice，不将历史活动视为当前活动。`];
+    const dataNotes = ["月销量、销量增长率和销售额为 SellerSprite 估算值，不是 Amazon 后台实际订单。", `Coupon 来自 coupon/couponTrends；PD 仅在 primePrice 明确大于 0 时标记；Amazon Deal 来自近 36 小时 Keepa dealPrice。三种促销独立记录，历史活动不视为当前活动。当前共返回 ${promotionHistory.length} 条促销记录。`];
     dataNotes.push(Object.keys(media).length
       ? "Listing 标题、五点和属性来自详情接口，图片组来自 Keepa；按每日快照和上一自然日比较。"
       : "Listing 标题、五点和属性已留存；本次 Keepa 图片组不可用，仅保存详情主图。");
@@ -383,7 +399,7 @@ export async function analyzeAsin(marketplace: string, asin: string): Promise<An
     return {
       sourceVersion: 2,
       salesVersion: 1,
-      promotionVersion: 1,
+      promotionVersion: 2,
       listingVersion: 1,
       marketplace,
       asin,
@@ -416,7 +432,10 @@ export async function analyzeAsin(marketplace: string, asin: string): Promise<An
         couponType: pricing.couponType,
         couponValue: pricing.couponValue,
         couponFinalPrice: pricing.couponFinalPrice,
-        primePrice: typeof detailAsin.primePrice === "number" && detailAsin.primePrice > 0 ? detailAsin.primePrice : null,
+        pdActive,
+        pdPrice,
+        pdAudience: pdActive ? "prime" : null,
+        primePrice: pdPrice,
         dealActive,
         dealType: null,
         dealPrice,
@@ -441,7 +460,7 @@ export async function analyzeAsin(marketplace: string, asin: string): Promise<An
       actions: [
         medianRating !== null && typeof seed.rating === "number" && seed.rating < medianRating ? "优先分析近期 1–3 星评论，找出评分差距。" : "保持当前评分优势并监控新增差评主题。",
         freeShare !== null && freeShare >= 75 ? "守住自然关键词，不因竞品加广告就盲目跟投。" : "检查高流量词的自然排名与广告投入效率。",
-        "明天按同一接口复查销量、Deal/Coupon、折后价、BSR、评分和核心流量，形成首个日环比。",
+        "明天按同一接口复查销量、PD、Coupon、Amazon Deal、折后价、BSR、评分和核心流量，形成首个日环比。",
       ],
       dataNotes,
       listing: {

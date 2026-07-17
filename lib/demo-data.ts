@@ -30,6 +30,9 @@ export type PromotionSnapshot = {
   couponType: "amount" | "percent" | "text" | null;
   couponValue: number | string | null;
   couponFinalPrice: number | null;
+  pdActive: boolean | null;
+  pdPrice: number | null;
+  pdAudience: "prime" | "all" | null;
   primePrice: number | null;
   dealActive: boolean | null;
   dealType: string | null;
@@ -46,7 +49,7 @@ export type PromotionChange = {
 
 export type PromotionHistoryPoint = {
   capturedAt: string;
-  kind: "coupon" | "deal";
+  kind: "coupon" | "pd" | "deal";
   label: string;
   listPrice: number | null;
   promotionPrice: number | null;
@@ -180,7 +183,7 @@ export type HistoryQueryResponse = {
 export const demoResult: AnalysisResult = {
   sourceVersion: 2,
   salesVersion: 1,
-  promotionVersion: 1,
+  promotionVersion: 2,
   listingVersion: 1,
   marketplace: "DE",
   asin: "B0DPDKLHYM",
@@ -213,6 +216,9 @@ export const demoResult: AnalysisResult = {
     couponType: null,
     couponValue: null,
     couponFinalPrice: null,
+    pdActive: false,
+    pdPrice: null,
+    pdAudience: null,
     primePrice: null,
     dealActive: false,
     dealType: null,

@@ -14,7 +14,9 @@ test("builds the daily monitoring dashboard", async () => {
   assert.match(page, /查询历史/);
   assert.match(page, /折后价/);
   assert.match(page, /月销量/);
-  assert.match(page, /Deal \/ Coupon/);
+  assert.match(page, /PD \/ Coupon \/ Deal/);
+  assert.match(page, /PD（Price Discount）/);
+  assert.match(page, /P\/M 仅表示百分比\/金额 Coupon/);
   assert.match(page, /销量与促销状态/);
   assert.match(page, /最近价格促销记录/);
   assert.match(page, /历史记录，不代表当前活动/);

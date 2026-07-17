@@ -78,6 +78,10 @@ function comparePromotion(current: PromotionSnapshot, previous: PromotionSnapsho
   }
   if (current.couponActive && previous.couponActive && current.couponType && previous.couponType && current.couponType !== previous.couponType) summaries.push("Coupon 类型已变化");
   if (current.couponActive && previous.couponActive && current.couponType === previous.couponType && current.couponValue !== null && previous.couponValue !== null && current.couponValue !== previous.couponValue) summaries.push("Coupon 优惠值已变化");
+  if (typeof current.pdActive === "boolean" && typeof previous.pdActive === "boolean" && current.pdActive !== previous.pdActive) {
+    summaries.push(current.pdActive ? "PD 已开始" : "PD 已结束");
+  }
+  if (current.pdActive && previous.pdActive && current.pdPrice !== null && previous.pdPrice !== null && current.pdPrice !== previous.pdPrice) summaries.push("PD 价格已变化");
   return { baseline: false, changed: summaries.length > 0, summaries };
 }
 
@@ -85,6 +89,7 @@ export function hydrateResult(input: Partial<AnalysisResult>): AnalysisResult {
   const metrics = input.metrics ?? ({} as AnalysisResult["metrics"]);
   const traffic = input.traffic ?? ({} as AnalysisResult["traffic"]);
   const effectivePrice = metrics.effectivePrice ?? metrics.price ?? null;
+  const legacyPdPrice = typeof input.promotion?.primePrice === "number" && input.promotion.primePrice > 0 ? input.promotion.primePrice : null;
   const result = input as AnalysisResult;
   return {
     ...result,
@@ -104,11 +109,19 @@ export function hydrateResult(input: Partial<AnalysisResult>): AnalysisResult {
       monthlyRevenue: metrics.monthlyRevenue ?? null,
     },
     salesMeta: input.salesMeta ?? { source: "legacy", estimate: true, period: null },
-    promotion: input.promotion ?? {
+    promotion: input.promotion ? {
+      ...input.promotion,
+      pdActive: input.promotion.pdActive ?? (legacyPdPrice !== null ? true : null),
+      pdPrice: input.promotion.pdPrice ?? legacyPdPrice,
+      pdAudience: input.promotion.pdAudience ?? (legacyPdPrice !== null ? "prime" : null),
+    } : {
       couponActive: metrics.coupon ? true : null,
       couponType: null,
       couponValue: metrics.coupon ?? null,
       couponFinalPrice: null,
+      pdActive: null,
+      pdPrice: null,
+      pdAudience: null,
       primePrice: null,
       dealActive: null,
       dealType: null,
@@ -279,7 +292,7 @@ export function decorateWithHistory(currentInput: AnalysisResult, previousInputs
   };
   const deltaConclusions = prior
     ? changeConclusion(changes)
-    : [{ severity: "info" as const, title: "已建立每日监控基线", body: "下一自然日再次抓取后，将显示销量、Deal/Coupon、折后价、评分、BSR 与核心流量变化。" }];
+    : [{ severity: "info" as const, title: "已建立每日监控基线", body: "下一自然日再次抓取后，将显示销量、PD、Coupon、Amazon Deal、折后价、评分、BSR 与核心流量变化。" }];
   const previousListing = previousInputs
     .map(hydrateResult)
     .filter((item) => item.listingVersion === current.listingVersion && item.listingVersion > 0 && item.capturedAt.slice(0, 10) !== currentDay)
