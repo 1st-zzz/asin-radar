@@ -227,7 +227,8 @@ export default function Home() {
     setHistoryMessage("已带入 ASIN，点击查询历史数据");
   }
 
-  const latestPlatformPoint = historyResult?.platform.points.at(-1) ?? null;
+  const platformPoints = historyResult?.platform.points ?? [];
+  const latestPlatformPoint = platformPoints[platformPoints.length - 1] ?? null;
   const firstPlatformPoint = historyResult?.platform.points[0] ?? null;
   const latestPlatformPrice = latestPlatformPoint?.marketPrice ?? null;
   const firstPlatformPrice = firstPlatformPoint?.marketPrice ?? null;
@@ -238,24 +239,24 @@ export default function Home() {
   return (
     <div className="product-layout">
       <aside className="sidebar">
-        <a className="product-brand" href="#top"><span className="brand-glyph">A</span><span><strong>ASIN Radar</strong><small>Competitive intelligence</small></span></a>
+        <a className="product-brand" href="#top"><span className="brand-glyph">AR</span><span><strong>ASIN Radar</strong><small>竞品监控</small></span></a>
         <nav>
-          <button type="button" className={view === "monitor" ? "active" : ""} onClick={() => setView("monitor")}><span className="nav-icon">01</span><span>今日监控<small>同步与变化</small></span></button>
-          <button type="button" className={view === "history" ? "active" : ""} onClick={() => setView("history")}><span className="nav-icon">02</span><span>历史查询<small>过往趋势</small></span></button>
+          <button type="button" className={view === "monitor" ? "active" : ""} onClick={() => setView("monitor")}><span className="nav-icon">监</span><span>监控列表<small>同步与变化</small></span></button>
+          <button type="button" className={view === "history" ? "active" : ""} onClick={() => setView("history")}><span className="nav-icon">历</span><span>历史查询<small>过往趋势</small></span></button>
         </nav>
-        <div className="sidebar-foot"><span className="live-dot" />SellerSprite 数据已连接<small>历史快照安全留存</small></div>
+        <div className="sidebar-foot"><span className="live-dot" />数据服务正常<small>SellerSprite · D1 历史库</small></div>
       </aside>
 
       <main className="main-canvas" id="top">
         <header className="product-topbar">
-          <div><p>{view === "monitor" ? "Monitoring workspace" : "Historical intelligence"}</p><h1>{view === "monitor" ? "今日监控" : "ASIN 历史查询"}</h1></div>
+          <div><p>竞品监控 / {view === "monitor" ? "监控列表" : "历史数据"}</p><h1>{view === "monitor" ? "监控列表" : "ASIN 历史查询"}</h1></div>
           <div className="topbar-meta"><span>{latestCapture ? `数据更新 ${formatDate(latestCapture, true)}` : "等待首次同步"}</span><span className="account-badge">DE</span></div>
         </header>
 
         {view === "monitor" ? (
           <div className="page-content">
             <section className="welcome-row">
-              <div><span className="section-label">每日经营雷达</span><h2>把竞品变化，变成今天的动作。</h2><p>统一跟踪折后价、评分、排名与核心流量。相同口径、逐日留存、异常优先。</p></div>
+              <div><h2>竞品每日监控</h2><p>统一跟踪折后价、评分、排名与核心流量；同口径逐日留存并标记异常变化。</p></div>
               <form className="sync-card" onSubmit={handleSync}>
                 <div className="sync-head"><strong>同步今日快照</strong><span>最多 20 个 ASIN</span></div>
                 <div className="sync-fields"><select aria-label="默认站点" value={defaultMarketplace} onChange={(event) => setDefaultMarketplace(event.target.value)}>{MARKETPLACES.map((item) => <option key={item}>{item}</option>)}</select><textarea value={input} onChange={(event) => setInput(event.target.value)} rows={2} aria-label="ASIN 列表" /><button type="submit" disabled={isLoading}>{isLoading ? "同步中…" : "开始同步"}</button></div>
@@ -267,7 +268,7 @@ export default function Home() {
               <div className="overview-card accent"><span>监控对象</span><strong>{results.length}</strong><small>跨 {new Set(results.map((item) => item.marketplace)).size} 个站点</small></div>
               <div className="overview-card"><span>今日有变化</span><strong>{changedCount}</strong><small>相较上一自然日</small></div>
               <div className="overview-card"><span>需要重点关注</span><strong>{results.filter((item) => item.conclusions.some((entry) => entry.severity === "high")).length}</strong><small>价格、排名或流量异常</small></div>
-              <div className="overview-card wide"><span>监控口径</span><strong>日快照</strong><small>同一天保留最后一次用于趋势</small></div>
+              <div className="overview-card wide"><span>监控口径</span><strong>每日快照</strong><small>同一天取最后一次用于趋势</small></div>
             </section>
 
             <section className="product-card watchlist-card">
@@ -279,7 +280,7 @@ export default function Home() {
         ) : (
           <div className="page-content history-page">
             <section className="history-hero">
-              <div className="history-copy"><span className="section-label">Historical lookup</span><h2>看清一个 ASIN 的过去，<br />再判断它的现在。</h2><p>查询平台历史价格、BSR、评分与评论轨迹；已加入监控的 ASIN 还能查看本产品留存的折后价和流量快照。</p></div>
+              <div className="history-copy"><h2>查询 ASIN 历史表现</h2><p>查询平台历史价格、BSR、评分与评论轨迹；已加入监控的 ASIN 还可查看折后价和流量快照。</p></div>
               <form className="history-search" onSubmit={handleHistoryQuery}>
                 <label>查询对象</label><div className="history-fields"><select aria-label="历史查询站点" value={historyMarketplace} onChange={(event) => setHistoryMarketplace(event.target.value)}>{MARKETPLACES.map((item) => <option key={item}>{item}</option>)}</select><input value={historyAsin} onChange={(event) => setHistoryAsin(event.target.value.toUpperCase())} placeholder="输入 10 位 ASIN" maxLength={10} /><select aria-label="历史范围" value={historyDays} onChange={(event) => setHistoryDays(event.target.value)}><option value="30">近 30 天</option><option value="90">近 90 天</option><option value="180">近 180 天</option><option value="365">近 365 天</option></select><button type="submit" disabled={historyLoading}>{historyLoading ? "查询中…" : "查询历史"}</button></div><p role="status">{historyMessage}</p>
               </form>
@@ -300,7 +301,7 @@ export default function Home() {
                   <div><span>本产品快照</span><strong>{historyResult.retained ? `${historyResult.retained.history.length} 天` : "未监控"}</strong><small>{historyResult.retained ? "可查看折后价与流量" : "同步今日数据后开始累积"}</small></div>
                 </section>
                 <section className="product-card platform-chart-card">
-                  <div className="card-heading"><div><span className="section-label">SellerSprite Keepa</span><h2>平台历史轨迹</h2></div><span>{historyResult.platform.points[0] ? `${formatDate(historyResult.platform.points[0].capturedAt)} — ${formatDate(historyResult.platform.points.at(-1)!.capturedAt)}` : "暂无数据"}</span></div>
+                  <div className="card-heading"><div><span className="section-label">SellerSprite Keepa</span><h2>平台历史轨迹</h2></div><span>{historyResult.platform.points[0] ? `${formatDate(historyResult.platform.points[0].capturedAt)} — ${formatDate(historyResult.platform.points[historyResult.platform.points.length - 1].capturedAt)}` : "暂无数据"}</span></div>
                   <div className="metric-tabs large">{PLATFORM_METRICS.map((item) => <button type="button" key={item.key} className={historyMetric === item.key ? "active" : ""} onClick={() => setHistoryMetric(item.key)}>{item.label}</button>)}</div>
                   <PlatformChart response={historyResult} metric={historyMetric} />
                   <p className="source-note">{historyResult.platform.sourceNote}</p>

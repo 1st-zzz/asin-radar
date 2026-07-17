@@ -9,7 +9,7 @@ test("builds the daily monitoring dashboard", async () => {
     access(new URL("../dist/server/index.js", import.meta.url)),
   ]);
   assert.match(layout, /ASIN Radar｜竞品监控与历史查询/);
-  assert.match(page, /把竞品变化，变成今天的动作/);
+  assert.match(page, /竞品每日监控/);
   assert.match(page, /ASIN 历史查询/);
   assert.match(page, /查询历史/);
   assert.match(page, /折后价/);
