@@ -2,29 +2,15 @@ import { and, desc, eq } from "drizzle-orm";
 import { getDb } from "../../../db";
 import { monitorRuns } from "../../../db/schema";
 import { analyzeAsin } from "../../../lib/sellersprite";
-import type { AnalysisResult } from "../../../lib/demo-data";
+import type { AnalysisResult, MonitorFailure } from "../../../lib/demo-data";
 import { decorateWithHistory, hydrateResult } from "../../../lib/history";
+import { AUTO_SYNC_SCHEDULE, AUTO_SYNC_TIMEZONE, deleteMonitorTarget, failureFrom, listTargetStates, markFailedTargets, persistSuccessfulTargets, setTargetAutoSync } from "../../../lib/monitor-targets";
 import { consumeDailyQuota, DAILY_ANALYZE_LIMIT } from "../../../lib/usage";
 import { getVisitorSession, visitorJson } from "../../../lib/visitor-session";
 
 const MARKETPLACES = new Set(["US", "JP", "UK", "DE", "FR", "IT", "ES", "CA", "IN", "MX", "BR", "AU", "AE"]);
 
-async function persistResults(userId: string, results: AnalysisResult[]) {
-  try {
-    const db = getDb();
-    await db.insert(monitorRuns).values(results.map((result) => ({
-      id: crypto.randomUUID(),
-      userId,
-      marketplace: result.marketplace,
-      asin: result.asin,
-      capturedAt: Date.parse(result.capturedAt),
-      resultJson: JSON.stringify(result),
-    })));
-    return true;
-  } catch {
-    return false;
-  }
-}
+const automation = { schedule: AUTO_SYNC_SCHEDULE, timezone: AUTO_SYNC_TIMEZONE };
 
 async function getTargetHistory(userId: string, marketplace: string, asin: string) {
   try {
@@ -58,9 +44,10 @@ export async function GET(request: Request) {
     const results = [...grouped.values()]
       .map((items) => decorateWithHistory(items[0], items.slice(1)))
       .sort((a, b) => Date.parse(b.capturedAt) - Date.parse(a.capturedAt));
-    return visitorJson(visitor, { results, persisted: true });
+    const targets = await listTargetStates(visitor.userId);
+    return visitorJson(visitor, { results, targets, persisted: true, automation });
   } catch {
-    return visitorJson(visitor, { results: [], persisted: false });
+    return visitorJson(visitor, { results: [], targets: [], persisted: false, automation });
   }
 }
 
@@ -77,17 +64,40 @@ export async function POST(request: Request) {
 
     const settled = await Promise.allSettled(targets.map((target) => analyzeAsin(target.marketplace, target.asin)));
     const results = settled.filter((item): item is PromiseFulfilledResult<AnalysisResult> => item.status === "fulfilled").map((item) => item.value);
-    const failures = settled.filter((item): item is PromiseRejectedResult => item.status === "rejected");
+    const failures: MonitorFailure[] = settled.flatMap((item, index) => item.status === "rejected" ? [failureFrom(targets[index], item.reason)] : []);
     if (!results.length) {
-      const reason = failures[0]?.reason;
-      return visitorJson(visitor, { error: reason instanceof Error ? reason.message : "所有 ASIN 分析均失败" }, { status: 503 });
+      return visitorJson(visitor, { error: failures[0]?.error || "所有 ASIN 分析均失败", failures }, { status: 503 });
     }
     const histories = await Promise.all(results.map((result) => getTargetHistory(visitor.userId, result.marketplace, result.asin)));
     const decorated = results.map((result, index) => decorateWithHistory(result, histories[index]));
-    const persisted = await persistResults(visitor.userId, results);
-    return visitorJson(visitor, { results: decorated, persisted, failed: failures.length });
+    let persisted = true;
+    try {
+      await persistSuccessfulTargets(visitor.userId, results);
+      await markFailedTargets(visitor.userId, failures);
+    } catch {
+      persisted = false;
+    }
+    const targetStates = persisted ? await listTargetStates(visitor.userId) : [];
+    return visitorJson(visitor, { results: decorated, targets: targetStates, persisted, failures, automation });
   } catch (error) {
     return visitorJson(visitor, { error: error instanceof Error ? error.message : "分析请求失败" }, { status: 500 });
+  }
+}
+
+export async function PATCH(request: Request) {
+  const visitor = await getVisitorSession(request);
+  try {
+    const payload = (await request.json()) as { marketplace?: string; asin?: string; autoSync?: boolean };
+    const marketplace = payload.marketplace?.trim().toUpperCase() ?? "";
+    const asin = payload.asin?.trim().toUpperCase() ?? "";
+    if (!MARKETPLACES.has(marketplace) || !/^[A-Z0-9]{10}$/.test(asin) || typeof payload.autoSync !== "boolean") {
+      return visitorJson(visitor, { error: "请输入有效的站点、ASIN 和自动同步状态" }, { status: 400 });
+    }
+    const target = await setTargetAutoSync(visitor.userId, marketplace, asin, payload.autoSync);
+    if (!target) return visitorJson(visitor, { error: "监控对象不存在" }, { status: 404 });
+    return visitorJson(visitor, { target, automation });
+  } catch {
+    return visitorJson(visitor, { error: "自动同步设置失败，请稍后重试" }, { status: 500 });
   }
 }
 
@@ -101,9 +111,7 @@ export async function DELETE(request: Request) {
   }
 
   try {
-    await getDb()
-      .delete(monitorRuns)
-      .where(and(eq(monitorRuns.userId, visitor.userId), eq(monitorRuns.marketplace, marketplace), eq(monitorRuns.asin, asin)));
+    await deleteMonitorTarget(visitor.userId, marketplace, asin);
     return visitorJson(visitor, { deleted: true, marketplace, asin });
   } catch {
     return visitorJson(visitor, { error: "删除监控失败，请稍后重试" }, { status: 500 });

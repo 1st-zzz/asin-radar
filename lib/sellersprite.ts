@@ -557,6 +557,7 @@ export async function analyzeAsin(marketplace: string, asin: string): Promise<An
       changes: {
         effectivePrice: emptyChange(currentEffectivePrice),
         rating: emptyChange(detailAsin.rating ?? null),
+        reviews: emptyChange(detailAsin.ratings ?? null),
         bsr: emptyChange(detailAsin.bsrRank ?? null),
         naturalKeywords: emptyChange(naturalKeywords),
         freeShare: emptyChange(freeShare),

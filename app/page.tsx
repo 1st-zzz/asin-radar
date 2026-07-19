@@ -7,13 +7,15 @@ import type {
   HistoryQueryResponse,
   MetricChange,
   MonitorResponse,
+  MonitorTargetState,
   PlatformHistoryPoint,
   PromotionHistoryPoint,
 } from "../lib/demo-data";
+import { formatMaterialSignal, materialSummary } from "../lib/monitoring";
 
 const MARKETPLACES = ["US", "JP", "UK", "DE", "FR", "IT", "ES", "CA", "IN", "MX", "BR", "AU", "AE"];
 type ViewMode = "monitor" | "history";
-type SnapshotMetric = "effectivePrice" | "monthlyUnits" | "monthlyRevenue" | "dealPrice" | "rating" | "bsr" | "naturalKeywords" | "freeShare" | "paidShare" | "adTrafficShare" | "spKeywords" | "sbvKeywords";
+type SnapshotMetric = "effectivePrice" | "monthlyUnits" | "monthlyRevenue" | "dealPrice" | "rating" | "reviews" | "bsr" | "naturalKeywords" | "freeShare" | "paidShare" | "adTrafficShare" | "spKeywords" | "sbvKeywords";
 type PlatformMetric = "marketPrice" | "promotionPrice" | "bsr" | "rating" | "reviews";
 
 const SNAPSHOT_METRICS: Array<{ key: SnapshotMetric; label: string }> = [
@@ -22,6 +24,7 @@ const SNAPSHOT_METRICS: Array<{ key: SnapshotMetric; label: string }> = [
   { key: "monthlyRevenue", label: "月销售额" },
   { key: "dealPrice", label: "Deal 价格" },
   { key: "rating", label: "评分" },
+  { key: "reviews", label: "评论数" },
   { key: "bsr", label: "BSR" },
   { key: "naturalKeywords", label: "自然词" },
   { key: "freeShare", label: "免费来源占比" },
@@ -182,14 +185,14 @@ function TrafficPanel({ result }: { result: AnalysisResult }) {
   const paidShare = result.traffic.paidShare ?? 0;
   return (
     <section className="traffic-panel">
-      <div className="traffic-heading"><div><span className="section-label">Traffic Watch</span><h3>免费与付费流量来源</h3></div><span>关键词贡献覆盖 {formatNumber(result.traffic.trafficCoverage, 1)}%</span></div>
-      <div className="traffic-share-bar" aria-label={`免费流量 ${freeShare.toFixed(1)}%，付费流量 ${paidShare.toFixed(1)}%`}>
+      <div className="traffic-heading"><div><span className="section-label">Traffic Watch</span><h3>关联来源结构与关键词广告贡献</h3></div><span>关键词贡献覆盖 {formatNumber(result.traffic.trafficCoverage, 1)}%</span></div>
+      <div className="traffic-share-bar" aria-label={`免费关联来源 ${freeShare.toFixed(1)}%，付费关联来源 ${paidShare.toFixed(1)}%`}>
         <span className="natural" style={{ width: `${Math.max(0, Math.min(100, freeShare))}%` }} />
         <span className="paid" style={{ width: `${Math.max(0, Math.min(100, paidShare))}%` }} />
       </div>
       <div className="traffic-metrics">
-        <div><span>免费来源占比</span><strong>{formatPercent(result.traffic.freeShare)}</strong><DeltaBadge change={result.changes.freeShare} mode="absolute" suffix="pp" /><small>含自然、推荐与免费关联</small></div>
-        <div><span>付费来源占比</span><strong>{formatPercent(result.traffic.paidShare)}</strong><DeltaBadge change={result.changes.paidShare} mode="absolute" suffix="pp" /><small>按付费关联来源数量计算</small></div>
+        <div><span>免费关联来源占比</span><strong>{formatPercent(result.traffic.freeShare)}</strong><DeltaBadge change={result.changes.freeShare} mode="absolute" suffix="pp" /><small>按关联来源数量计算，不是访客流量</small></div>
+        <div><span>付费关联来源占比</span><strong>{formatPercent(result.traffic.paidShare)}</strong><DeltaBadge change={result.changes.paidShare} mode="absolute" suffix="pp" /><small>按付费关联来源数量计算，不是广告会话</small></div>
         <div><span>SP 广告词</span><strong>{formatNumber(result.traffic.spKeywords)} 词</strong><DeltaBadge change={result.changes.spKeywords} /><small>关键词广告贡献 {formatPercent(result.traffic.spTrafficShare, 2)}</small></div>
         <div><span>SBV 视频广告词</span><strong>{formatNumber(result.traffic.sbvKeywords)} 词</strong><DeltaBadge change={result.changes.sbvKeywords} /><small>关键词广告贡献 {formatPercent(result.traffic.sbvTrafficShare, 2)}</small></div>
         <div><span>SB 品牌广告词</span><strong>{formatNumber(result.traffic.sbKeywords)} 词</strong><span className="delta quiet">结构监控</span><small>关键词广告贡献 {formatPercent(result.traffic.sbTrafficShare, 2)}</small></div>
@@ -213,7 +216,7 @@ function TrafficPanel({ result }: { result: AnalysisResult }) {
           </table>
         </div>
       </div>
-      <p className="traffic-source-note">{result.traffic.sourceNote} 当前关键词自然/广告贡献为 {formatPercent(result.traffic.naturalTrafficShare, 2)} / {formatPercent(result.traffic.adTrafficShare, 2)}；它不等于整体免费/付费占比。</p>
+      <p className="traffic-source-note"><strong>口径提示：</strong>{result.traffic.sourceNote} 当前关键词自然/广告贡献为 {formatPercent(result.traffic.naturalTrafficShare, 2)} / {formatPercent(result.traffic.adTrafficShare, 2)}；两个指标分母不同，均不能表述为 Amazon 后台真实访客流量。</p>
     </section>
   );
 }
@@ -232,13 +235,13 @@ function SnapshotDetail({ result }: { result: AnalysisResult }) {
         <div className="detail-title-block"><div className="product-code"><span>{result.marketplace}</span>{result.asin}</div><h2 title={result.title}>{result.title}</h2><p>{result.brand || "品牌待识别"} · 最近抓取 {formatDate(result.capturedAt, true)}</p></div>
         <a href={result.amazonUrl} target="_blank" rel="noreferrer" className="ghost-button">Amazon 商品页 ↗</a>
       </div>
-      <div className="kpi-strip">
+        <div className="kpi-strip">
         <div><span>折后价</span><strong>{formatMoney(result.metrics.effectivePrice, result.currency)}</strong><DeltaBadge change={result.changes.effectivePrice} /><small>{result.metrics.priceNote}</small></div>
         <div><span>月销量估算</span><strong>{formatNumber(result.metrics.monthlyUnits)}</strong><DeltaBadge change={result.changes.monthlyUnits} /><small>增长率 {result.metrics.monthlyUnitsGrowthPercent === null ? "—" : `${result.metrics.monthlyUnitsGrowthPercent > 0 ? "+" : ""}${formatNumber(result.metrics.monthlyUnitsGrowthPercent, 1)}%`}</small></div>
         <div><span>PD / Coupon / Deal</span><strong className={`promotion-value ${promotionState.tone}`}>{promotionState.label}</strong>{result.promotion.dealPrice !== null ? <DeltaBadge change={result.changes.dealPrice} /> : <span className="delta quiet">状态监控</span>}<small>{promotionState.detail}</small></div>
-        <div><span>评分</span><strong>{formatNumber(result.metrics.rating, 1)}</strong><DeltaBadge change={result.changes.rating} mode="absolute" /><small>{formatNumber(result.metrics.reviews)} 个评分</small></div>
+        <div><span>评分 / 评论数</span><strong>{formatNumber(result.metrics.rating, 1)}</strong><DeltaBadge change={result.changes.rating} mode="absolute" /><small>{formatNumber(result.metrics.reviews)} 条 · {deltaText(result.changes.reviews)}</small></div>
         <div><span>主类 BSR</span><strong>{formatNumber(result.metrics.bsr)}</strong><DeltaBadge change={result.changes.bsr} /><small>数字越低越好</small></div>
-        <div><span>核心流量</span><strong>免费 {formatPercent(result.traffic.freeShare)}</strong><DeltaBadge change={result.changes.freeShare} mode="absolute" suffix="pp" /><small>付费 {formatPercent(result.traffic.paidShare)} · SP {formatNumber(result.traffic.spKeywords)} 词 · SBV {formatNumber(result.traffic.sbvKeywords)} 词</small></div>
+        <div><span>关联来源结构</span><strong>免费 {formatPercent(result.traffic.freeShare)}</strong><DeltaBadge change={result.changes.freeShare} mode="absolute" suffix="pp" /><small>按来源数量计算 · 付费 {formatPercent(result.traffic.paidShare)}</small></div>
       </div>
       <section className="promotion-panel">
         <div className="promotion-heading"><div><span className="section-label">Promotion Watch</span><h3>销量与促销状态</h3></div><span className={`promotion-badge ${promotionState.tone}`}>{promotionState.label}</span></div>
@@ -298,14 +301,17 @@ function SnapshotDetail({ result }: { result: AnalysisResult }) {
 export default function Home() {
   const [view, setView] = useState<ViewMode>("monitor");
   const [defaultMarketplace, setDefaultMarketplace] = useState("DE");
-  const [input, setInput] = useState("DE B0DPDKLHYM");
+  const [input, setInput] = useState("");
   const [results, setResults] = useState<AnalysisResult[]>([]);
+  const [targetStates, setTargetStates] = useState<MonitorTargetState[]>([]);
   const [selectedKey, setSelectedKey] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [deletingKey, setDeletingKey] = useState("");
+  const [updatingAutoKey, setUpdatingAutoKey] = useState("");
+  const [serviceState, setServiceState] = useState<"loading" | "ready" | "degraded">("loading");
   const [message, setMessage] = useState("正在读取监控记录…");
   const [historyMarketplace, setHistoryMarketplace] = useState("DE");
-  const [historyAsin, setHistoryAsin] = useState("B0DPDKLHYM");
+  const [historyAsin, setHistoryAsin] = useState("");
   const [historyDays, setHistoryDays] = useState("180");
   const [historyMetric, setHistoryMetric] = useState<PlatformMetric>("marketPrice");
   const [historyResult, setHistoryResult] = useState<HistoryQueryResponse | null>(null);
@@ -316,16 +322,29 @@ export default function Home() {
     let active = true;
     fetch("/api/analyze").then(async (response) => ({ ok: response.ok, payload: (await response.json()) as MonitorResponse & { error?: string } })).then(({ ok, payload }) => {
       if (!active) return;
-      if (!ok) return setMessage(payload.error || "监控记录暂时无法读取");
+      if (!ok) {
+        setServiceState("degraded");
+        return setMessage(payload.error || "监控记录暂时无法读取");
+      }
       setResults(payload.results);
+      setTargetStates(payload.targets ?? []);
+      setServiceState(payload.persisted ? "ready" : "degraded");
       if (payload.results[0]) setSelectedKey(`${payload.results[0].marketplace}:${payload.results[0].asin}`);
       setMessage(payload.results.length ? `已载入 ${payload.results.length} 个监控对象` : "暂无监控记录，先建立今日基线");
-    }).catch(() => active && setMessage("历史记录暂时无法读取，可直接同步今日数据"));
+    }).catch(() => {
+      if (!active) return;
+      setServiceState("degraded");
+      setMessage("历史记录暂时无法读取，可直接同步今日数据");
+    });
     return () => { active = false; };
   }, []);
 
   const selected = useMemo(() => results.find((item) => `${item.marketplace}:${item.asin}` === selectedKey) ?? results[0], [results, selectedKey]);
-  const changedCount = results.filter((item) => item.listingChanges.changed || item.promotionChanges.changed || Object.values(item.changes).some((change) => change.previous !== null && change.direction !== "flat")).length;
+  const targetStateMap = useMemo(() => new Map(targetStates.map((item) => [`${item.marketplace}:${item.asin}`, item])), [targetStates]);
+  const moverRows = useMemo(() => results.map((item) => ({ item, summary: materialSummary(item) })).filter((row) => row.summary.changed).sort((a, b) => b.summary.score - a.summary.score), [results]);
+  const changedCount = moverRows.length;
+  const topMover = moverRows[0] ?? null;
+  const rankedResults = useMemo(() => [...results].sort((a, b) => materialSummary(b).score - materialSummary(a).score || Date.parse(b.capturedAt) - Date.parse(a.capturedAt)), [results]);
   const latestCapture = results.reduce<string | null>((latest, item) => !latest || Date.parse(item.capturedAt) > Date.parse(latest) ? item.capturedAt : latest, null);
 
   async function handleSync(event: FormEvent) {
@@ -338,7 +357,7 @@ export default function Home() {
     setMessage(`正在同步 ${targets.length} 个 ASIN 的今日快照…`);
     try {
       const response = await fetch("/api/analyze", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ targets }) });
-      const payload = (await response.json()) as MonitorResponse & { error?: string; failed?: number };
+      const payload = (await response.json()) as MonitorResponse & { error?: string };
       if (!response.ok) throw new Error(payload.error || "同步服务暂时不可用");
       setResults((current) => {
         const updated = new Map(current.map((item) => [`${item.marketplace}:${item.asin}`, item]));
@@ -346,11 +365,35 @@ export default function Home() {
         return [...updated.values()].sort((a, b) => Date.parse(b.capturedAt) - Date.parse(a.capturedAt));
       });
       if (payload.results[0]) setSelectedKey(`${payload.results[0].marketplace}:${payload.results[0].asin}`);
-      setMessage(payload.persisted ? `今日快照已保存${payload.failed ? `，${payload.failed} 个失败` : ""}` : "同步完成，但历史库暂时不可写");
+      if (payload.targets) setTargetStates(payload.targets);
+      const failedText = payload.failures?.length ? `；失败：${payload.failures.slice(0, 3).map((item) => `${item.marketplace} ${item.asin}（${item.error}）`).join("、")}` : "";
+      setMessage(payload.persisted ? `今日快照已保存，已加入每日自动同步${failedText}` : "同步完成，但历史库暂时不可写");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "同步失败，请稍后重试");
     } finally {
       setIsLoading(false);
+    }
+  }
+
+  async function handleAutoSync(item: AnalysisResult) {
+    const key = `${item.marketplace}:${item.asin}`;
+    const current = targetStateMap.get(key);
+    if (!current) return setMessage("监控状态尚未载入，请稍后重试");
+    setUpdatingAutoKey(key);
+    try {
+      const response = await fetch("/api/analyze", {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ marketplace: item.marketplace, asin: item.asin, autoSync: !current.autoSync }),
+      });
+      const payload = (await response.json()) as { target?: MonitorTargetState; error?: string };
+      if (!response.ok || !payload.target) throw new Error(payload.error || "自动同步设置失败");
+      setTargetStates((states) => states.map((state) => state.marketplace === payload.target?.marketplace && state.asin === payload.target.asin ? payload.target : state));
+      setMessage(`${item.marketplace} ${item.asin} 已${payload.target.autoSync ? "开启" : "暂停"}每日自动同步`);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "自动同步设置失败");
+    } finally {
+      setUpdatingAutoKey("");
     }
   }
 
@@ -396,6 +439,7 @@ export default function Home() {
       if (!response.ok || !payload.deleted) throw new Error(payload.error || "删除监控失败");
       const remaining = results.filter((result) => `${result.marketplace}:${result.asin}` !== key);
       setResults(remaining);
+      setTargetStates((states) => states.filter((state) => `${state.marketplace}:${state.asin}` !== key));
       setSelectedKey((current) => current === key ? remaining[0] ? `${remaining[0].marketplace}:${remaining[0].asin}` : "" : current);
       setMessage(`已删除 ${item.marketplace} ${item.asin} 及其全部留存记录`);
     } catch (error) {
@@ -422,7 +466,7 @@ export default function Home() {
           <button type="button" className={view === "monitor" ? "active" : ""} onClick={() => setView("monitor")}><span className="nav-icon">监</span><span>监控列表<small>同步与变化</small></span></button>
           <button type="button" className={view === "history" ? "active" : ""} onClick={() => setView("history")}><span className="nav-icon">历</span><span>历史查询<small>过往趋势</small></span></button>
         </nav>
-        <div className="sidebar-foot"><span className="live-dot" />数据服务正常<small>匿名空间隔离 · D1 历史库</small></div>
+        <div className="sidebar-foot"><span className={`live-dot ${serviceState}`} />{serviceState === "loading" ? "正在检查数据服务" : serviceState === "ready" ? "数据服务已连接" : "数据服务部分受限"}<small>匿名空间隔离 · D1 历史库</small></div>
       </aside>
 
       <main className="main-canvas" id="top">
@@ -434,31 +478,33 @@ export default function Home() {
         {view === "monitor" ? (
           <div className="page-content">
             <section className="welcome-row">
-              <div><h2>竞品每日监控</h2><p>无需登录，只显示当前浏览器添加的产品；清除 Cookie 或更换浏览器后无法恢复原匿名空间。</p></div>
+              <div><h2>竞品每日监控</h2><p>添加后每日 09:00（北京时间）自动留存快照；无需登录，只显示当前浏览器添加的产品。</p></div>
               <form className="sync-card" onSubmit={handleSync}>
-                <div className="sync-head"><strong>同步今日快照</strong><span>最多 20 个 ASIN</span></div>
-                <div className="sync-fields"><select aria-label="默认站点" value={defaultMarketplace} onChange={(event) => setDefaultMarketplace(event.target.value)}>{MARKETPLACES.map((item) => <option key={item}>{item}</option>)}</select><textarea value={input} onChange={(event) => setInput(event.target.value)} rows={2} aria-label="ASIN 列表" /><button type="submit" disabled={isLoading}>{isLoading ? "同步中…" : "开始同步"}</button></div>
+                <div className="sync-head"><strong>添加 ASIN 并建立今日基线</strong><span>最多 20 个 ASIN</span></div>
+                <div className="sync-fields"><select aria-label="默认站点" value={defaultMarketplace} onChange={(event) => setDefaultMarketplace(event.target.value)}>{MARKETPLACES.map((item) => <option key={item}>{item}</option>)}</select><textarea value={input} onChange={(event) => setInput(event.target.value)} rows={2} aria-label="ASIN 列表" placeholder={'每行一个 ASIN，例如：\nB0DPDKLHYM'} /><button type="submit" disabled={isLoading}>{isLoading ? "同步中…" : "添加并同步"}</button></div>
                 <p role="status">{message}</p>
               </form>
             </section>
 
             <section className="overview-grid">
-              <div className="overview-card accent"><span>监控对象</span><strong>{results.length}</strong><small>跨 {new Set(results.map((item) => item.marketplace)).size} 个站点</small></div>
-              <div className="overview-card"><span>今日有变化</span><strong>{changedCount}</strong><small>相较上一自然日</small></div>
-              <div className="overview-card"><span>需要重点关注</span><strong>{results.filter((item) => item.conclusions.some((entry) => entry.severity === "high")).length}</strong><small>销量、Deal、价格或排名异常</small></div>
-              <div className="overview-card wide"><span>监控口径</span><strong>每日快照</strong><small>同一天取最后一次用于趋势</small></div>
+              <div className="overview-card accent"><span>监控对象</span><strong>{results.length}</strong><small>{targetStates.filter((item) => item.autoSync).length} 个已开启自动同步</small></div>
+              <div className="overview-card"><span>显著波动</span><strong>{changedCount}</strong><small>价格、评论、销量或流量达到 15%</small></div>
+              <div className="overview-card"><span>需要重点关注</span><strong>{results.filter((item) => item.conclusions.some((entry) => entry.severity === "high")).length}</strong><small>促销、Listing、评分或排名异常</small></div>
+              <div className="overview-card wide"><span>波动最大竞品</span><strong>{topMover ? topMover.item.asin : "暂无"}</strong><small>{topMover ? formatMaterialSignal(topMover.summary.top) : "等待下一自然日形成对比"}</small></div>
             </section>
 
             <section className="product-card watchlist-card">
               <div className="card-heading"><div><span className="section-label">Watchlist</span><h2>监控列表</h2></div><span>{results.length} 个商品</span></div>
               <div className="table-scroll">
                 <table className="watch-table">
-                  <thead><tr><th>商品</th><th>折后价</th><th>月销量</th><th>PD / Coupon / Deal</th><th>评分</th><th>BSR</th><th>核心流量</th><th>Listing</th><th>最近同步</th><th>操作</th></tr></thead>
+                  <thead><tr><th>商品</th><th>折后价</th><th>月销量</th><th>PD / Coupon / Deal</th><th>评分 / 评论</th><th>BSR</th><th>监控状态</th><th>操作</th></tr></thead>
                   <tbody>
-                    {results.map((item) => {
+                    {rankedResults.map((item) => {
                       const key = `${item.marketplace}:${item.asin}`;
                       const promotionState = promotionDisplay(item);
-                      return <tr key={key} className={selectedKey === key ? "selected" : ""} onClick={() => setSelectedKey(key)}>
+                      const targetState = targetStateMap.get(key);
+                      const material = materialSummary(item);
+                      return <tr key={key} className={selectedKey === key ? "selected" : ""} onClick={() => setSelectedKey(key)} tabIndex={0} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") setSelectedKey(key); }}>
                         <td className="watch-product">
                           <span className="product-thumb"><span>{item.marketplace}</span>{item.listing.imageUrls[0] && <img src={item.listing.imageUrls[0]} alt={`${item.asin} 商品主图`} loading="lazy" onError={(event) => { event.currentTarget.style.display = "none"; }} />}</span>
                           <span className="watch-product-copy"><span className="watch-product-id"><span className="market-pill">{item.marketplace}</span><strong>{item.asin}</strong></span><small title={item.title}>{item.title || item.brand || "商品标题待补充"}</small></span>
@@ -466,15 +512,13 @@ export default function Home() {
                         <td><strong>{formatMoney(item.metrics.effectivePrice, item.currency)}</strong><DeltaBadge change={item.changes.effectivePrice} /></td>
                         <td><strong>{formatNumber(item.metrics.monthlyUnits)}</strong><DeltaBadge change={item.changes.monthlyUnits} /><small>{item.metrics.monthlyUnitsGrowthPercent === null ? "估算值" : `增长率 ${item.metrics.monthlyUnitsGrowthPercent > 0 ? "+" : ""}${formatNumber(item.metrics.monthlyUnitsGrowthPercent, 1)}%`}</small></td>
                         <td><span className={`promotion-badge ${promotionState.tone}`}>{promotionState.label}</span><small>{promotionState.detail}</small></td>
-                        <td><strong>{formatNumber(item.metrics.rating, 1)}</strong><DeltaBadge change={item.changes.rating} mode="absolute" /></td>
+                        <td><strong>{formatNumber(item.metrics.rating, 1)} · {formatNumber(item.metrics.reviews)}</strong><small>{deltaText(item.changes.reviews)}</small></td>
                         <td><strong>{formatNumber(item.metrics.bsr)}</strong><DeltaBadge change={item.changes.bsr} /></td>
-                        <td><strong>免费 {formatPercent(item.traffic.freeShare)} · 付费 {formatPercent(item.traffic.paidShare)}</strong><small>SP {formatNumber(item.traffic.spKeywords)} 词 · SBV {formatNumber(item.traffic.sbvKeywords)} 词</small></td>
-                        <td><strong className={item.listingChanges.changed ? "listing-table-changed" : ""}>{item.listingChanges.baseline ? "已建基线" : item.listingChanges.changed ? `${item.listingChanges.summaries.length} 项变动` : "无变动"}</strong><small>{item.listing.imageUrls.length} 图 · {item.listing.bullets.length} 条五点</small></td>
-                        <td><strong>{formatDate(item.capturedAt)}</strong><small>{item.history.length} 天记录</small></td>
-                        <td><span className="row-actions"><button type="button" className="history-link" onClick={(event) => { event.stopPropagation(); openHistory(item); }}>查历史</button><button type="button" className="delete-link" disabled={deletingKey === key} onClick={(event) => { event.stopPropagation(); void handleDelete(item); }}>{deletingKey === key ? "删除中…" : "删除"}</button></span></td>
+                        <td><strong className={targetState?.lastStatus === "failed" || material.changed ? "alert-table-changed" : ""}>{targetState?.lastStatus === "failed" ? "自动同步失败" : material.changed ? formatMaterialSignal(material.top) : item.history.length > 1 ? "波动未达阈值" : "等待次日对比"}</strong><small title={targetState?.lastError ?? undefined}>{targetState?.lastStatus === "failed" ? targetState.lastError : item.listingChanges.changed ? `Listing ${item.listingChanges.summaries.length} 项变化` : `最近同步 ${formatDate(item.capturedAt)}`}</small></td>
+                        <td><span className="row-actions"><button type="button" className={`auto-link ${targetState?.autoSync ? "active" : ""}`} disabled={!targetState || updatingAutoKey === key} onClick={(event) => { event.stopPropagation(); void handleAutoSync(item); }}>{updatingAutoKey === key ? "设置中" : targetState?.autoSync ? "自动" : "手动"}</button><button type="button" className="history-link" onClick={(event) => { event.stopPropagation(); openHistory(item); }}>历史</button><button type="button" className="delete-link" disabled={deletingKey === key} onClick={(event) => { event.stopPropagation(); void handleDelete(item); }}>{deletingKey === key ? "删除中" : "删除"}</button></span></td>
                       </tr>;
                     })}
-                    {!results.length && <tr><td className="empty-cell" colSpan={10}>还没有监控对象。上方输入 ASIN 并点击“开始同步”，即可获取价格、销量、广告/自然流量和核心关键词位基线。</td></tr>}
+                    {!results.length && <tr><td className="empty-cell" colSpan={8}><div className="empty-steps"><span><b>01</b><strong>添加 ASIN</strong><small>选择站点，每行输入一个 ASIN</small></span><span><b>02</b><strong>建立基线</strong><small>立即抓取价格、销量、促销与 Listing</small></span><span><b>03</b><strong>每日自动对比</strong><small>次日开始展示趋势和显著波动</small></span></div></td></tr>}
                   </tbody>
                 </table>
               </div>
@@ -511,7 +555,7 @@ export default function Home() {
                   <PromotionHistoryList points={historyResult.platform.promotionHistory} currency={historyResult.platform.currency} />
                   <p className="source-note">{historyResult.platform.sourceNote}</p>
                 </section>
-                {historyResult.retained ? <SnapshotDetail result={historyResult.retained} /> : <section className="start-monitoring"><div><span className="section-label">Start monitoring</span><h2>这个 ASIN 还没有产品快照</h2><p>平台历史可以回看过去；要持续追踪销量、PD、Coupon、Amazon Deal、折后价和核心流量，需要从今天建立自己的监控基线。</p></div><button type="button" onClick={() => { setInput(`${historyMarketplace} ${historyAsin}`); setDefaultMarketplace(historyMarketplace); setView("monitor"); }}>去建立今日基线 →</button></section>}
+                {historyResult.retained ? <SnapshotDetail result={historyResult.retained} /> : <section className="start-monitoring"><div><span className="section-label">Start monitoring</span><h2>这个 ASIN 还没有产品快照</h2><p>平台历史可以回看过去；要持续追踪销量、PD、Coupon、Amazon Deal、折后价和核心流量，需要从今天建立自己的监控基线。</p></div><button type="button" onClick={() => { setInput(historyAsin); setDefaultMarketplace(historyMarketplace); setView("monitor"); }}>去建立今日基线 →</button></section>}
               </>
             )}
           </div>

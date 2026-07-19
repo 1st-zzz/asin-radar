@@ -1,0 +1,29 @@
+{
+  "schema_version": 3,
+  "captured_at": "2026-07-17T09:00:00+08:00",
+  "marketplace": "DE",
+  "source": "sellersprite-mcp",
+  "depth": "standard",
+  "targets": [
+    {
+      "asin": "B0TEST0001",
+      "effective_price": 100,
+      "reviews": 100,
+      "bsr_main": 1000,
+      "sales": { "version": 1, "monthly_units": 100, "monthly_revenue": 1000, "monthly_units_growth_percent": 5, "source": "competitor_lookup", "estimate": true },
+      "promotion": { "version": 1, "deal_active": false, "deal_price": null, "coupon_active": false },
+      "listing": { "version": 1, "title": "Test product one", "bullets": [], "attributes_text": null, "image_urls": [] },
+      "traffic": { "natural_keyword_count": 100, "ad_keyword_count": 20, "free_share": 80, "paid_share": 20 }
+    },
+    {
+      "asin": "B0TEST0002",
+      "effective_price": 50,
+      "reviews": 200,
+      "bsr_main": 2000,
+      "sales": { "version": 1, "monthly_units": 200, "monthly_revenue": 2000, "monthly_units_growth_percent": 10, "source": "competitor_lookup", "estimate": true },
+      "promotion": { "version": 1, "deal_active": false, "deal_price": null, "coupon_active": false },
+      "listing": { "version": 1, "title": "Test product two", "bullets": [], "attributes_text": null, "image_urls": [] },
+      "traffic": { "natural_keyword_count": 200, "ad_keyword_count": 40, "free_share": 70, "paid_share": 30 }
+    }
+  ]
+}

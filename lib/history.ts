@@ -132,6 +132,7 @@ export function hydrateResult(input: Partial<AnalysisResult>): AnalysisResult {
       effectivePrice,
       coupon: metrics.coupon ?? null,
       priceNote: metrics.priceNote ?? "历史口径",
+      reviews: metrics.reviews ?? null,
       monthlyUnits: metrics.monthlyUnits ?? null,
       monthlyUnitsGrowthPercent: metrics.monthlyUnitsGrowthPercent ?? null,
       monthlyRevenue: metrics.monthlyRevenue ?? null,
@@ -191,6 +192,7 @@ export function hydrateResult(input: Partial<AnalysisResult>): AnalysisResult {
     changes: {
       effectivePrice: emptyChange(effectivePrice),
       rating: emptyChange(metrics.rating ?? null),
+      reviews: emptyChange(metrics.reviews ?? null),
       bsr: emptyChange(metrics.bsr ?? null),
       naturalKeywords: emptyChange(traffic.naturalKeywords ?? null),
       freeShare: emptyChange(traffic.freeShare ?? null),
@@ -216,6 +218,7 @@ export function toHistoryPoint(result: AnalysisResult): HistoryPoint {
     effectivePrice: result.metrics.effectivePrice ?? result.metrics.price,
     listPrice: result.metrics.listPrice,
     rating: result.metrics.rating,
+    reviews: result.metrics.reviews,
     bsr: result.metrics.bsr,
     naturalKeywords: result.traffic.naturalKeywords,
     adKeywords: result.traffic.adKeywords,
@@ -257,7 +260,7 @@ function changeConclusion(changes: AnalysisResult["changes"]): Array<{ severity:
   const price = changes.effectivePrice;
   if (price.percent !== null && price.direction !== "flat") {
     conclusions.push({
-      severity: Math.abs(price.percent) >= 10 ? "high" : "info",
+      severity: Math.abs(price.percent) >= 15 ? "high" : "info",
       title: `折后价${price.direction === "up" ? "上涨" : "下降"} ${Math.abs(price.percent).toFixed(1)}%`,
       body: `由 ${price.previous} 变为 ${price.current}，已按同一详情与优惠券口径比较。`,
     });
@@ -272,6 +275,15 @@ function changeConclusion(changes: AnalysisResult["changes"]): Array<{ severity:
     });
   }
 
+  const reviews = changes.reviews;
+  if (reviews.percent !== null && Math.abs(reviews.percent) >= 15) {
+    conclusions.push({
+      severity: "high",
+      title: `评论数${reviews.direction === "up" ? "增长" : "下降"} ${Math.abs(reviews.percent).toFixed(1)}%`,
+      body: `由 ${reviews.previous} 变为 ${reviews.current}；建议结合评分和近期差评主题判断影响。`,
+    });
+  }
+
   const bsr = changes.bsr;
   if (bsr.percent !== null && bsr.direction !== "flat") {
     conclusions.push({
@@ -282,7 +294,7 @@ function changeConclusion(changes: AnalysisResult["changes"]): Array<{ severity:
   }
 
   const natural = changes.naturalKeywords;
-  if (natural.percent !== null && Math.abs(natural.percent) >= 25) {
+  if (natural.percent !== null && Math.abs(natural.percent) >= 15) {
     conclusions.push({
       severity: "medium",
       title: `自然关键词${natural.direction === "up" ? "扩张" : "收缩"} ${Math.abs(natural.percent).toFixed(1)}%`,
@@ -300,7 +312,7 @@ function changeConclusion(changes: AnalysisResult["changes"]): Array<{ severity:
   }
 
   const spKeywords = changes.spKeywords;
-  if (spKeywords.percent !== null && Math.abs(spKeywords.percent) >= 25) conclusions.push({
+  if (spKeywords.percent !== null && Math.abs(spKeywords.percent) >= 15) conclusions.push({
     severity: "medium",
     title: `SP 广告词${spKeywords.direction === "up" ? "增加" : "减少"} ${Math.abs(spKeywords.percent).toFixed(1)}%`,
     body: `由 ${spKeywords.previous} 个变为 ${spKeywords.current} 个；词数不等同于流量规模。`,
@@ -314,7 +326,7 @@ function changeConclusion(changes: AnalysisResult["changes"]): Array<{ severity:
   });
 
   const monthlyUnits = changes.monthlyUnits;
-  if (monthlyUnits.percent !== null && Math.abs(monthlyUnits.percent) >= 25) {
+  if (monthlyUnits.percent !== null && Math.abs(monthlyUnits.percent) >= 15) {
     conclusions.push({
       severity: "high",
       title: `月销量估算${monthlyUnits.direction === "up" ? "上升" : "下降"} ${Math.abs(monthlyUnits.percent).toFixed(1)}%`,
@@ -333,7 +345,7 @@ function changeConclusion(changes: AnalysisResult["changes"]): Array<{ severity:
   }
 
   const dealPrice = changes.dealPrice;
-  if (dealPrice.percent !== null && Math.abs(dealPrice.percent) >= 10) {
+  if (dealPrice.percent !== null && Math.abs(dealPrice.percent) >= 15) {
     conclusions.push({
       severity: "high",
       title: `Deal 价格${dealPrice.direction === "up" ? "上涨" : "下降"} ${Math.abs(dealPrice.percent).toFixed(1)}%`,
@@ -363,6 +375,7 @@ export function decorateWithHistory(currentInput: AnalysisResult, previousInputs
   const changes = {
     effectivePrice: change(current.metrics.effectivePrice, prior?.effectivePrice ?? null, "neutral"),
     rating: change(current.metrics.rating, prior?.rating ?? null, "up"),
+    reviews: change(current.metrics.reviews, prior?.reviews ?? null, "up"),
     bsr: change(current.metrics.bsr, prior?.bsr ?? null, "down"),
     naturalKeywords: change(current.traffic.naturalKeywords, trafficPrior?.traffic.naturalKeywords ?? null, "up"),
     freeShare: change(current.traffic.freeShare, trafficPrior?.traffic.freeShare ?? null, "up"),

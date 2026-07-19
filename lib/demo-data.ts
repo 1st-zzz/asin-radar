@@ -14,6 +14,7 @@ export type HistoryPoint = {
   effectivePrice: number | null;
   listPrice: number | null;
   rating: number | null;
+  reviews: number | null;
   bsr: number | null;
   naturalKeywords: number | null;
   adKeywords: number | null;
@@ -174,6 +175,7 @@ export type AnalysisResult = {
   changes: {
     effectivePrice: MetricChange;
     rating: MetricChange;
+    reviews: MetricChange;
     bsr: MetricChange;
     naturalKeywords: MetricChange;
     freeShare: MetricChange;
@@ -192,7 +194,28 @@ export type AnalysisResult = {
   comparisonCapturedAt: string | null;
 };
 
-export type MonitorResponse = { results: AnalysisResult[]; persisted: boolean };
+export type MonitorTargetState = {
+  marketplace: string;
+  asin: string;
+  autoSync: boolean;
+  lastSyncedAt: string | null;
+  lastStatus: "ready" | "running" | "success" | "failed";
+  lastError: string | null;
+};
+
+export type MonitorFailure = {
+  marketplace: string;
+  asin: string;
+  error: string;
+};
+
+export type MonitorResponse = {
+  results: AnalysisResult[];
+  persisted: boolean;
+  targets: MonitorTargetState[];
+  failures?: MonitorFailure[];
+  automation: { schedule: string; timezone: string };
+};
 
 export type PlatformHistoryPoint = {
   capturedAt: string;
@@ -348,6 +371,7 @@ export const demoResult: AnalysisResult = {
   changes: {
     effectivePrice: { current: 26.99, previous: null, absolute: null, percent: null, direction: "new", favorable: null },
     rating: { current: 4, previous: null, absolute: null, percent: null, direction: "new", favorable: null },
+    reviews: { current: 347, previous: null, absolute: null, percent: null, direction: "new", favorable: null },
     bsr: { current: 229700, previous: null, absolute: null, percent: null, direction: "new", favorable: null },
     naturalKeywords: { current: 134, previous: null, absolute: null, percent: null, direction: "new", favorable: null },
     freeShare: { current: 93.09, previous: null, absolute: null, percent: null, direction: "new", favorable: null },
