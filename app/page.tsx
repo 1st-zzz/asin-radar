@@ -3,6 +3,7 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import type {
   AnalysisResult,
+  CoverageStatus,
   HistoryPoint,
   HistoryQueryResponse,
   MetricChange,
@@ -11,7 +12,7 @@ import type {
   PlatformHistoryPoint,
   PromotionHistoryPoint,
 } from "../lib/demo-data";
-import { formatMaterialSignal, materialSummary } from "../lib/monitoring";
+import { businessConclusions, dataRiskSummary, formatMaterialSignal, materialSummary } from "../lib/monitoring";
 import { explainUserError, friendlyError, userErrorTone } from "../lib/user-errors";
 
 const MARKETPLACES = ["US", "JP", "UK", "DE", "FR", "IT", "ES", "CA", "IN", "MX", "BR", "AU", "AE"];
@@ -20,7 +21,7 @@ type SnapshotMetric = "effectivePrice" | "monthlyUnits" | "monthlyRevenue" | "de
 type PlatformMetric = "marketPrice" | "promotionPrice" | "bsr" | "rating" | "reviews";
 type WatchFilter = "all" | "alerts" | "promotion" | "listing" | "failed" | "manual";
 type WatchSort = "risk" | "latest" | "sales" | "price" | "traffic";
-type RiskLevel = "high" | "medium" | "low" | "baseline";
+type RiskLevel = "high" | "medium" | "low" | "baseline" | "data";
 
 const SNAPSHOT_METRICS: Array<{ key: SnapshotMetric; label: string }> = [
   { key: "effectivePrice", label: "折后价" },
@@ -47,7 +48,7 @@ const PLATFORM_METRICS: Array<{ key: PlatformMetric; label: string }> = [
 const WATCH_FILTERS: Array<{ key: WatchFilter; label: string }> = [
   { key: "all", label: "全部" },
   { key: "alerts", label: "仅异常" },
-  { key: "promotion", label: "促销中" },
+  { key: "promotion", label: "促销信号" },
   { key: "listing", label: "Listing 变动" },
   { key: "failed", label: "同步失败" },
   { key: "manual", label: "手动同步" },
@@ -102,12 +103,18 @@ function hasActivePromotion(result: AnalysisResult) {
   return Boolean(result.promotion.pdActive || result.promotion.couponActive || result.promotion.dealActive);
 }
 
+function hasPromotionSignal(result: AnalysisResult) {
+  return hasActivePromotion(result) || result.promotionChanges.changed || result.promotionHistory.length > 0 || Boolean(result.promotion.pdPrice && result.promotion.pdActive === null);
+}
+
 function riskProfile(result: AnalysisResult, targetState?: MonitorTargetState | null) {
   const material = materialSummary(result);
-  const hasHigh = result.conclusions.some((entry) => entry.severity === "high");
-  const hasMedium = result.conclusions.some((entry) => entry.severity === "medium");
+  const business = businessConclusions(result);
+  const dataRisk = dataRiskSummary(result);
+  const hasHigh = business.some((entry) => entry.severity === "high");
+  const hasMedium = business.some((entry) => entry.severity === "medium");
   const failed = targetState?.lastStatus === "failed";
-  const baseline = result.history.length <= 1 && !material.changed && !hasHigh && !hasMedium && !failed;
+  const baseline = result.history.length <= 1 && !material.changed && !hasHigh && !hasMedium && !failed && !dataRisk.changed;
   let level: RiskLevel = "low";
   let label = "低";
   let reason = "暂无显著波动";
@@ -121,13 +128,18 @@ function riskProfile(result: AnalysisResult, targetState?: MonitorTargetState | 
   } else if (hasHigh || material.score >= 1.25) {
     level = "high";
     label = "高";
-    reason = material.changed ? formatMaterialSignal(material.top) : result.conclusions.find((entry) => entry.severity === "high")?.title ?? "重点风险";
+    reason = material.changed ? formatMaterialSignal(material.top) : business.find((entry) => entry.severity === "high")?.title ?? "重点风险";
     score = Math.max(score, 2);
   } else if (material.changed || hasMedium || result.promotionChanges.changed || result.listingChanges.changed) {
     level = "medium";
     label = "中";
-    reason = material.changed ? formatMaterialSignal(material.top) : result.conclusions.find((entry) => entry.severity === "medium")?.title ?? "需要关注";
+    reason = material.changed ? formatMaterialSignal(material.top) : business.find((entry) => entry.severity === "medium")?.title ?? "需要关注";
     score = Math.max(score, 1);
+  } else if (dataRisk.changed) {
+    level = "data";
+    label = "数据";
+    reason = `覆盖度 ${dataRisk.score}%`;
+    score = Math.max(score, 0.55);
   } else if (baseline) {
     level = "baseline";
     label = "基线";
@@ -152,10 +164,11 @@ function issueTags(result: AnalysisResult, targetState?: MonitorTargetState | nu
   addPercentTag(result.changes.reviews, "评论");
   if (result.changes.paidShare.previous !== null && result.changes.paidShare.absolute !== null && Math.abs(result.changes.paidShare.absolute) >= 15) tags.push("付费来源变化");
   if (result.changes.adTrafficShare.previous !== null && result.changes.adTrafficShare.absolute !== null && Math.abs(result.changes.adTrafficShare.absolute) >= 15) tags.push("广告贡献变化");
-  if (hasActivePromotion(result)) tags.push(promotionDisplay(result).label);
+  if (hasPromotionSignal(result)) tags.push(promotionDisplay(result).label);
   if (result.promotionChanges.changed) tags.push("促销变化");
   if (result.listingChanges.changed) tags.push("Listing 变动");
   if (result.keywordPlacementChanges.some((item) => item.status === "lost" || item.status === "changed")) tags.push("广告位变化");
+  if (result.dataCoverage.score < 70) tags.push("数据缺口");
   if (!tags.length) tags.push(result.history.length <= 1 ? "新基线" : "稳定");
   return tags.slice(0, 4);
 }
@@ -172,7 +185,7 @@ function DeltaBadge({ change, mode = "percent", suffix = "" }: { change: MetricC
   return <span className={`delta ${tone}`}>{deltaText(change, mode, suffix)}</span>;
 }
 
-function Bars({ points, values, labels, formatter }: { points: string[]; values: Array<number | null>; labels: string[]; formatter: (value: number | null) => string }) {
+function LineChart({ points, values, labels, formatter }: { points: string[]; values: Array<number | null>; labels: string[]; formatter: (value: number | null) => string }) {
   const available = values.filter((value): value is number => value !== null && Number.isFinite(value));
   const min = available.length ? Math.min(...available) : 0;
   const max = available.length ? Math.max(...available) : 0;
@@ -212,7 +225,7 @@ function SnapshotChart({ result, metric }: { result: AnalysisResult; metric: Sna
   const history = result.history.slice(-30);
   const percentMetric = metric === "freeShare" || metric === "paidShare" || metric === "adTrafficShare";
   const formatter = (value: number | null) => metric === "effectivePrice" || metric === "monthlyRevenue" || metric === "dealPrice" ? formatMoney(value, result.currency) : metric === "rating" ? formatNumber(value, 1) : percentMetric ? `${formatNumber(value, 1)}%` : formatNumber(value);
-  return <Bars points={history.map((point) => point.capturedAt)} labels={history.map((point) => formatDate(point.capturedAt))} values={history.map((point: HistoryPoint) => point[metric])} formatter={formatter} />;
+  return <LineChart points={history.map((point) => point.capturedAt)} labels={history.map((point) => formatDate(point.capturedAt))} values={history.map((point: HistoryPoint) => point[metric])} formatter={formatter} />;
 }
 
 function PlatformChart({ response, metric }: { response: HistoryQueryResponse; metric: PlatformMetric }) {
@@ -220,7 +233,7 @@ function PlatformChart({ response, metric }: { response: HistoryQueryResponse; m
   const step = Math.max(1, Math.ceil(source.length / 24));
   const points = source.filter((_, index) => index % step === 0 || index === source.length - 1);
   const formatter = (value: number | null) => metric === "marketPrice" || metric === "promotionPrice" ? formatMoney(value, response.platform.currency) : metric === "rating" ? formatNumber(value, 1) : formatNumber(value);
-  return <Bars points={points.map((point) => point.capturedAt)} labels={points.map((point) => formatDate(point.capturedAt))} values={points.map((point: PlatformHistoryPoint) => point[metric])} formatter={formatter} />;
+  return <LineChart points={points.map((point) => point.capturedAt)} labels={points.map((point) => formatDate(point.capturedAt))} values={points.map((point: PlatformHistoryPoint) => point[metric])} formatter={formatter} />;
 }
 
 function PromotionHistoryList({ points, currency }: { points: PromotionHistoryPoint[]; currency: string }) {
@@ -249,35 +262,110 @@ function promotionDisplay(result: AnalysisResult) {
     ...(result.promotion.couponActive ? ["Coupon"] : []),
     ...(result.promotion.dealActive ? ["Amazon Deal"] : []),
   ];
+  const hasPdSignal = result.promotion.pdActive === null && result.promotion.pdPrice !== null;
+  const hasDealHistory = result.promotion.dealActive === null && result.promotionHistory.some((item) => item.kind === "deal");
   const unknown = result.promotion.pdActive === null && result.promotion.couponActive === null && result.promotion.dealActive === null;
   const label = active.length
     ? active.join(" + ")
+    : hasPdSignal
+      ? "疑似 PD 信号"
+      : hasDealHistory
+        ? "历史 Deal 信号"
     : unknown
       ? "数据待补充"
       : result.promotionHistory.length
         ? "当前无活动 · 历史有促销"
         : "未检测到活动";
-  const tone = active.length > 1 ? "mixed" : result.promotion.dealActive ? "deal" : result.promotion.pdActive ? "pd" : result.promotion.couponActive ? "coupon" : result.promotionHistory.length ? "history" : "quiet";
+  const tone = active.length > 1 ? "mixed" : result.promotion.dealActive ? "deal" : result.promotion.pdActive ? "pd" : result.promotion.couponActive ? "coupon" : hasPdSignal || hasDealHistory || result.promotionHistory.length ? "history" : "quiet";
   const detail = [
-    ...(result.promotion.pdPrice !== null ? [`PD ${formatMoney(result.promotion.pdPrice, result.currency)}`] : []),
+    ...(result.promotion.pdPrice !== null ? [`${result.promotion.pdActive === null ? "primePrice" : "PD"} ${formatMoney(result.promotion.pdPrice, result.currency)}`] : []),
     ...(result.promotion.couponFinalPrice !== null ? [`券后 ${formatMoney(result.promotion.couponFinalPrice, result.currency)}`] : []),
     ...(result.promotion.dealPrice !== null ? [`Deal ${formatMoney(result.promotion.dealPrice, result.currency)}`] : []),
   ].join(" · ") || "三种促销独立监控";
   return { label, tone, detail };
 }
 
+const COVERAGE_LABELS: Record<keyof Omit<AnalysisResult["dataCoverage"], "score" | "notes">, string> = {
+  pricing: "价格",
+  sales: "销量",
+  promotion: "促销",
+  traffic: "流量",
+  listing: "Listing",
+  keywordPlacement: "广告位",
+};
+
+function coverageText(status: CoverageStatus) {
+  if (status === "ok") return "已覆盖";
+  if (status === "partial") return "部分";
+  return "缺失";
+}
+
+function CoverageBadge({ label, status }: { label: string; status: CoverageStatus }) {
+  return <span className={`coverage-badge ${status}`}><strong>{label}</strong>{coverageText(status)}</span>;
+}
+
+function coverageItems(result: AnalysisResult) {
+  return (Object.keys(COVERAGE_LABELS) as Array<keyof typeof COVERAGE_LABELS>).map((key) => ({
+    key,
+    label: COVERAGE_LABELS[key],
+    status: result.dataCoverage[key],
+  }));
+}
+
+function CoverageSummary({ result, compact = false }: { result: AnalysisResult; compact?: boolean }) {
+  const items = coverageItems(result);
+  return (
+    <div className={compact ? "coverage-mini" : "coverage-panel"}>
+      <div className="coverage-score">
+        <span>数据覆盖</span>
+        <strong>{result.dataCoverage.score}%</strong>
+      </div>
+      <div className="coverage-badges">
+        {items.map((item) => <CoverageBadge key={item.key} label={item.label} status={item.status} />)}
+      </div>
+      {!compact && (
+        <p>{result.dataCoverage.notes.length ? result.dataCoverage.notes.join("；") : "当前核心数据模块覆盖完整。"}</p>
+      )}
+    </div>
+  );
+}
+
 function decisionSummary(result: AnalysisResult) {
   const material = materialSummary(result);
-  const high = result.conclusions.find((item) => item.severity === "high");
-  const first = high ?? result.conclusions[0];
+  const dataRisk = dataRiskSummary(result);
+  const business = businessConclusions(result);
+  const high = business.find((item) => item.severity === "high");
+  const first = high ?? business[0] ?? result.conclusions[0];
   const promotion = promotionDisplay(result);
   const tags = issueTags(result);
   const action = result.actions[0] ?? "保持每日同口径同步，等下一自然日形成可比趋势。";
   const confidence = result.history.length <= 1
     ? "置信度：基线期"
-    : result.dataNotes.length > 2
-      ? "置信度：中，需要留意数据口径"
+    : dataRisk.changed
+      ? `置信度：中，数据覆盖 ${dataRisk.score}%`
       : "置信度：高，同源快照可比";
+
+  if (result.listingChanges.changed && (!material.top || material.top.key === "listing")) {
+    return {
+      tone: "warning" as const,
+      title: "Listing 出现图片或文案变动",
+      body: result.listingChanges.summaries.join("；") || "检测到 Listing 版本变化，建议复核主图、标题、五点和属性文案。",
+      action: "查看 Listing Watch 中的变动项，判断是否影响转化卖点或价格带。",
+      confidence,
+      tags,
+    };
+  }
+
+  if (result.promotionChanges.changed && (!material.top || material.top.key === "promotion")) {
+    return {
+      tone: "warning" as const,
+      title: "促销状态发生变化",
+      body: result.promotionChanges.summaries.join("；") || "PD、Coupon 或 Amazon Deal 状态出现变化。",
+      action: "对照促销时间线，观察销量、BSR 和核心广告位是否同步变化。",
+      confidence,
+      tags,
+    };
+  }
 
   if (material.changed) {
     return {
@@ -290,23 +378,23 @@ function decisionSummary(result: AnalysisResult) {
     };
   }
 
-  if (result.listingChanges.changed) {
-    return {
-      tone: "warning" as const,
-      title: "Listing 出现图片或文案变动",
-      body: result.listingChanges.summaries.join("；") || "检测到 Listing 版本变化，建议复核主图、标题、五点和属性文案。",
-      action: "查看 Listing Watch 中的变动项，判断是否影响转化卖点或价格带。",
-      confidence,
-      tags,
-    };
-  }
-
   if (hasActivePromotion(result)) {
     return {
       tone: "warning" as const,
       title: `${promotion.label} 生效中`,
       body: "当前促销已与 PD、Coupon、Amazon Deal 分开识别；不要把历史促销误判为当前活动。",
       action: "观察促销期内销量、BSR 和关键词广告位是否同步变化。",
+      confidence,
+      tags,
+    };
+  }
+
+  if (dataRisk.changed) {
+    return {
+      tone: "info" as const,
+      title: "业务暂无异常，但数据覆盖需要确认",
+      body: dataRisk.notes.join("；") || "部分数据源未返回，当前结论需要降低置信度。",
+      action: "优先补齐缺失模块后再判断竞品是否真正波动。",
       confidence,
       tags,
     };
@@ -345,11 +433,6 @@ function SnapshotEvents({ result }: { result: AnalysisResult }) {
       .filter((item) => item.status === "lost" || item.status === "changed")
       .slice(0, 3)
       .map((item) => ({ tone: "info", label: item.adType ?? "关键词", body: `${item.keyword} 广告位/自然位发生变化` })),
-    ...result.promotionHistory.slice(0, 3).map((item) => ({
-      tone: item.kind,
-      label: item.label,
-      body: `${formatDate(item.capturedAt)} · ${formatMoney(item.promotionPrice, result.currency)}`,
-    })),
   ];
 
   if (!events.length) {
@@ -452,6 +535,7 @@ function SnapshotDetail({ result }: { result: AnalysisResult }) {
           <small>{decision.confidence}</small>
         </div>
       </section>
+      <CoverageSummary result={result} />
       <div className="kpi-strip">
         <div><span>折后价</span><strong>{formatMoney(result.metrics.effectivePrice, result.currency)}</strong><DeltaBadge change={result.changes.effectivePrice} /><small>{result.metrics.priceNote}</small></div>
         <div><span>月销量估算</span><strong>{formatNumber(result.metrics.monthlyUnits)}</strong><DeltaBadge change={result.changes.monthlyUnits} /><small>增长率 {result.metrics.monthlyUnitsGrowthPercent === null ? "—" : `${result.metrics.monthlyUnitsGrowthPercent > 0 ? "+" : ""}${formatNumber(result.metrics.monthlyUnitsGrowthPercent, 1)}%`}</small></div>
@@ -464,9 +548,9 @@ function SnapshotDetail({ result }: { result: AnalysisResult }) {
         <div className="promotion-heading"><div><span className="section-label">Promotion Watch</span><h3>销量与促销状态</h3></div><span className={`promotion-badge ${promotionState.tone}`}>{promotionState.label}</span></div>
         <div className="promotion-grid">
           <div><span>月销售额估算</span><strong>{formatMoney(result.metrics.monthlyRevenue, result.currency)}</strong><DeltaBadge change={result.changes.monthlyRevenue} /><small>来源：SellerSprite · 估算值</small></div>
-          <div><span>PD（Price Discount）</span><strong>{result.promotion.pdActive ? formatMoney(result.promotion.pdPrice, result.currency) : result.promotion.pdActive === false ? "未开启" : "暂无数据"}</strong><small>{result.promotion.pdActive ? result.promotion.pdAudience === "prime" ? "Prime 专享 · 来源 primePrice" : "全客户价格折扣" : "不从 Coupon 或 Deal 推断"}</small></div>
+          <div><span>PD（Price Discount）</span><strong>{result.promotion.pdActive ? formatMoney(result.promotion.pdPrice, result.currency) : result.promotion.pdActive === false ? "未开启" : result.promotion.pdPrice !== null ? "待确认" : "暂无数据"}</strong><small>{result.promotion.pdActive ? result.promotion.pdAudience === "prime" ? "Prime 专享 · 来源 primePrice" : "全客户价格折扣" : result.promotion.pdPrice !== null ? `primePrice ${formatMoney(result.promotion.pdPrice, result.currency)}，缺可比价` : "不从 Coupon 或 Deal 推断"}</small></div>
           <div><span>Coupon</span><strong>{result.promotion.couponActive ? result.promotion.couponValue ?? "已开启" : result.promotion.couponActive === false ? "未开启" : "暂无数据"}</strong><small>{result.promotion.couponFinalPrice !== null ? `券后 ${formatMoney(result.promotion.couponFinalPrice, result.currency)}` : "P/M 仅表示百分比/金额 Coupon"}</small></div>
-          <div><span>Amazon Deal</span><strong>{result.promotion.dealActive ? formatMoney(result.promotion.dealPrice, result.currency) : result.promotion.dealActive === false ? "未检测到" : "暂无数据"}</strong><small>{result.promotion.dealStartAt ? `最近信号 ${formatDate(result.promotion.dealStartAt, true)}` : "与 Coupon 分开判断"}</small></div>
+          <div><span>Amazon Deal</span><strong>{result.promotion.dealActive ? formatMoney(result.promotion.dealPrice, result.currency) : result.promotion.dealActive === false ? "未检测到" : "未确认当前 Deal"}</strong><small>{result.promotion.dealStartAt ? `最近信号 ${formatDate(result.promotion.dealStartAt, true)}` : "历史 dealPrice 只进时间线"}</small></div>
           <div className="promotion-change"><span>{result.promotionChanges.baseline ? "促销基线" : "相较上一自然日"}</span><strong>{result.promotionChanges.baseline ? "已开始留存" : result.promotionChanges.changed ? `${result.promotionChanges.summaries.length} 项变化` : "状态稳定"}</strong><small>{result.promotionChanges.summaries.join("；")}</small></div>
         </div>
         <PromotionHistoryList points={result.promotionHistory} currency={result.currency} />
@@ -561,7 +645,6 @@ export default function Home() {
     return () => { active = false; };
   }, []);
 
-  const selected = useMemo(() => results.find((item) => `${item.marketplace}:${item.asin}` === selectedKey) ?? results[0], [results, selectedKey]);
   const targetStateMap = useMemo(() => new Map(targetStates.map((item) => [`${item.marketplace}:${item.asin}`, item])), [targetStates]);
   const moverRows = useMemo(() => results.map((item) => ({ item, summary: materialSummary(item) })).filter((row) => row.summary.changed).sort((a, b) => b.summary.score - a.summary.score), [results]);
   const changedCount = moverRows.length;
@@ -574,8 +657,8 @@ export default function Home() {
       const risk = riskProfile(item, targetState);
       if (marketplaceFilter !== "ALL" && item.marketplace !== marketplaceFilter) return false;
       if (query && !`${item.marketplace} ${item.asin} ${item.title} ${item.brand}`.toLowerCase().includes(query)) return false;
-      if (watchFilter === "alerts") return risk.level === "high" || risk.level === "medium";
-      if (watchFilter === "promotion") return hasActivePromotion(item);
+      if (watchFilter === "alerts") return risk.level === "high" || risk.level === "medium" || risk.level === "data";
+      if (watchFilter === "promotion") return hasPromotionSignal(item);
       if (watchFilter === "listing") return item.listingChanges.changed;
       if (watchFilter === "failed") return targetState?.lastStatus === "failed";
       if (watchFilter === "manual") return targetState ? !targetState.autoSync : false;
@@ -591,6 +674,11 @@ export default function Home() {
       return riskProfile(b, stateB).score - riskProfile(a, stateA).score || Date.parse(b.capturedAt) - Date.parse(a.capturedAt);
     });
   }, [marketplaceFilter, results, searchTerm, targetStateMap, watchFilter, watchSort]);
+  const selected = useMemo(() => {
+    const visibleSelected = rankedResults.find((item) => `${item.marketplace}:${item.asin}` === selectedKey);
+    return visibleSelected ?? rankedResults[0] ?? results.find((item) => `${item.marketplace}:${item.asin}` === selectedKey) ?? results[0];
+  }, [rankedResults, results, selectedKey]);
+  const activeSelectedKey = selected ? `${selected.marketplace}:${selected.asin}` : "";
   const latestCapture = results.reduce<string | null>((latest, item) => !latest || Date.parse(item.capturedAt) > Date.parse(latest) ? item.capturedAt : latest, null);
 
   async function handleSync(event: FormEvent) {
@@ -600,7 +688,7 @@ export default function Home() {
     if (!targets.length || invalid) return setMessage("请按“站点 ASIN”输入，例如 DE B0DPDKLHYM");
     if (targets.length > 20) return setMessage("单次最多同步 20 个 ASIN");
     setIsLoading(true);
-    setMessage(`正在同步 ${targets.length} 个 ASIN 的今日快照…`);
+    setMessage(`正在队列同步 ${targets.length} 个 ASIN 的今日快照，系统会自动限流减少失败…`);
     try {
       const response = await fetch("/api/analyze", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ targets }) });
       const payload = (await response.json()) as MonitorResponse & { error?: string };
@@ -744,7 +832,7 @@ export default function Home() {
             <section className="overview-grid">
               <div className="overview-card accent"><span>监控对象</span><strong>{results.length}</strong><small>{targetStates.filter((item) => item.autoSync).length} 个已开启自动同步</small></div>
               <div className="overview-card"><span>显著波动</span><strong>{changedCount}</strong><small>价格、评论、销量或流量达到 15%</small></div>
-              <div className="overview-card"><span>需要重点关注</span><strong>{results.filter((item) => item.conclusions.some((entry) => entry.severity === "high")).length}</strong><small>促销、Listing、评分或排名异常</small></div>
+              <div className="overview-card"><span>需要重点关注</span><strong>{results.filter((item) => businessConclusions(item).some((entry) => entry.severity === "high")).length}</strong><small>只统计业务风险，不含数据缺口</small></div>
               <div className="overview-card wide"><span>波动最大竞品</span><strong>{topMover ? topMover.item.asin : "暂无"}</strong><small>{topMover ? formatMaterialSignal(topMover.summary.top) : "等待下一自然日形成对比"}</small></div>
             </section>
 
@@ -765,7 +853,7 @@ export default function Home() {
               </div>
               <div className="table-scroll">
                 <table className="watch-table">
-                  <thead><tr><th>风险</th><th>商品</th><th>折后价</th><th>月销量</th><th>PD / Coupon / Deal</th><th>评分 / 评论</th><th>BSR</th><th>关键词广告贡献</th><th>监控状态</th><th>操作</th></tr></thead>
+                  <thead><tr><th>风险</th><th>商品</th><th>折后价</th><th>月销量</th><th>PD / Coupon / Deal</th><th>评分 / 评论</th><th>BSR</th><th>关键词广告贡献</th><th>数据覆盖</th><th>监控状态</th><th>操作</th></tr></thead>
                   <tbody>
                     {rankedResults.map((item) => {
                       const key = `${item.marketplace}:${item.asin}`;
@@ -775,7 +863,7 @@ export default function Home() {
                       const risk = riskProfile(item, targetState);
                       const tags = issueTags(item, targetState);
                       const targetError = targetState?.lastError ? friendlyError(targetState.lastError) : "";
-                      return <tr key={key} className={selectedKey === key ? "selected" : ""} onClick={() => setSelectedKey(key)} tabIndex={0} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") setSelectedKey(key); }}>
+                      return <tr key={key} className={activeSelectedKey === key ? "selected" : ""} onClick={() => setSelectedKey(key)} tabIndex={0} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") setSelectedKey(key); }}>
                         <td className="risk-cell"><span className={`risk-badge ${risk.level}`}>{risk.label}</span><small title={risk.reason}>{risk.reason}</small><div className="tag-row">{tags.map((tag) => <span key={tag}>{tag}</span>)}</div></td>
                         <td className="watch-product">
                           <span className="product-thumb"><span>{item.marketplace}</span>{item.listing.imageUrls[0] && <img src={item.listing.imageUrls[0]} alt={`${item.asin} 商品主图`} loading="lazy" onError={(event) => { event.currentTarget.style.display = "none"; }} />}</span>
@@ -787,12 +875,13 @@ export default function Home() {
                         <td><strong>{formatNumber(item.metrics.rating, 1)} · {formatNumber(item.metrics.reviews)}</strong><small>{deltaText(item.changes.reviews)}</small></td>
                         <td><strong>{formatNumber(item.metrics.bsr)}</strong><DeltaBadge change={item.changes.bsr} /></td>
                         <td><strong>{formatPercent(item.traffic.adTrafficShare, 2)}</strong><small>SP {formatNumber(item.traffic.spKeywords)} · SBV {formatNumber(item.traffic.sbvKeywords)}</small></td>
+                        <td><CoverageSummary result={item} compact /></td>
                         <td><strong className={targetState?.lastStatus === "failed" || material.changed ? "alert-table-changed" : ""}>{targetState?.lastStatus === "failed" ? "自动同步失败" : material.changed ? formatMaterialSignal(material.top) : item.history.length > 1 ? "波动未达阈值" : "等待次日对比"}</strong><small title={targetError || undefined}>{targetState?.lastStatus === "failed" ? targetError : item.listingChanges.changed ? `Listing ${item.listingChanges.summaries.length} 项变化` : `最近同步 ${formatDate(item.capturedAt)}`}</small></td>
                         <td><span className="row-actions"><button type="button" className={`auto-link ${targetState?.autoSync ? "active" : ""}`} disabled={!targetState || updatingAutoKey === key} onClick={(event) => { event.stopPropagation(); void handleAutoSync(item); }}>{updatingAutoKey === key ? "设置中" : targetState?.autoSync ? "自动" : "手动"}</button><button type="button" className="history-link" onClick={(event) => { event.stopPropagation(); openHistory(item); }}>历史</button><button type="button" className="delete-link" disabled={deletingKey === key} onClick={(event) => { event.stopPropagation(); void handleDelete(item); }}>{deletingKey === key ? "删除中" : "删除"}</button></span></td>
                       </tr>;
                     })}
-                    {results.length > 0 && !rankedResults.length && <tr><td className="empty-cell" colSpan={10}>当前筛选条件下没有商品。可以切回“全部”或清空搜索词。</td></tr>}
-                    {!results.length && <tr><td className="empty-cell" colSpan={10}><div className="empty-steps"><span><b>01</b><strong>添加 ASIN</strong><small>选择站点，每行输入一个 ASIN</small></span><span><b>02</b><strong>建立基线</strong><small>立即抓取价格、销量、促销与 Listing</small></span><span><b>03</b><strong>每日自动对比</strong><small>次日开始展示趋势和显著波动</small></span></div></td></tr>}
+                    {results.length > 0 && !rankedResults.length && <tr><td className="empty-cell" colSpan={11}>当前筛选条件下没有商品。可以切回“全部”或清空搜索词。</td></tr>}
+                    {!results.length && <tr><td className="empty-cell" colSpan={11}><div className="empty-steps"><span><b>01</b><strong>添加 ASIN</strong><small>选择站点，每行输入一个 ASIN</small></span><span><b>02</b><strong>建立基线</strong><small>立即抓取价格、销量、促销与 Listing</small></span><span><b>03</b><strong>每日自动对比</strong><small>次日开始展示趋势和显著波动</small></span></div></td></tr>}
                   </tbody>
                 </table>
               </div>

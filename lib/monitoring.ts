@@ -64,6 +64,30 @@ export function materialSummary(result: AnalysisResult) {
   return { changed: signals.length > 0, score: signals[0]?.ratio ?? 0, top: signals[0] ?? null };
 }
 
+const DATA_RISK_WORDS = ["数据", "口径", "接口", "缺失", "不可用", "未返回", "待补充", "无法可靠", "覆盖不完整", "冲突"];
+
+export function isDataRiskConclusion(entry: { title: string; body: string }) {
+  const text = `${entry.title} ${entry.body}`;
+  return DATA_RISK_WORDS.some((word) => text.includes(word));
+}
+
+export function businessConclusions(result: AnalysisResult) {
+  return result.conclusions.filter((entry) => !isDataRiskConclusion(entry));
+}
+
+export function dataRiskSummary(result: AnalysisResult) {
+  const dataConclusions = result.conclusions.filter(isDataRiskConclusion);
+  const coverageNotes = result.dataCoverage.notes;
+  const coverageRisk = result.dataCoverage.score < 70;
+  const notes = [...coverageNotes, ...dataConclusions.map((item) => item.title)];
+  return {
+    changed: coverageRisk || dataConclusions.length > 0,
+    level: result.dataCoverage.score < 55 || dataConclusions.some((item) => item.severity === "high") ? "high" as const : coverageRisk ? "medium" as const : "low" as const,
+    score: result.dataCoverage.score,
+    notes: [...new Set(notes)].slice(0, 5),
+  };
+}
+
 export function formatMaterialSignal(signal: MaterialSignal | null) {
   if (!signal) return "暂无显著波动";
   if (signal.key === "promotion" || signal.key === "listing" || signal.key === "keywordPlacement") return `${signal.label}发生变化`;

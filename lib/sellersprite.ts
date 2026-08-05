@@ -1,7 +1,7 @@
 import { env } from "cloudflare:workers";
 import { Client } from "@modelcontextprotocol/sdk/client";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
-import type { AnalysisResult, PlatformHistoryPoint, PlatformHistoryResult, PromotionHistoryPoint, Severity } from "./demo-data";
+import type { AnalysisResult, CoverageStatus, DataCoverage, PlatformHistoryPoint, PlatformHistoryResult, PromotionHistoryPoint, Severity } from "./demo-data";
 
 const CURRENCIES: Record<string, string> = { US: "USD", JP: "JPY", UK: "GBP", DE: "EUR", FR: "EUR", IT: "EUR", ES: "EUR", CA: "CAD", IN: "INR", MX: "MXN", BR: "BRL", AU: "AUD", AE: "AED" };
 const AMAZON_DOMAINS: Record<string, string> = { US: "amazon.com", JP: "amazon.co.jp", UK: "amazon.co.uk", DE: "amazon.de", FR: "amazon.fr", IT: "amazon.it", ES: "amazon.es", CA: "amazon.ca", IN: "amazon.in", MX: "amazon.com.mx", BR: "amazon.com.br", AU: "amazon.com.au", AE: "amazon.ae" };
@@ -94,7 +94,7 @@ function effectivePrice(price: number | null, couponValue: unknown) {
     }
   }
 
-  return { coupon, couponActive: true, couponType: "text" as const, couponValue: coupon, couponFinalPrice: null, value: null, note: `优惠券“${coupon}”无法可靠换算` };
+  return { coupon, couponActive: true, couponType: "text" as const, couponValue: coupon, couponFinalPrice: null, value: price, note: `优惠券“${coupon}”无法可靠换算，折后价暂按页面售价记录` };
 }
 
 function emptyChange(current: number | null) {
@@ -180,6 +180,40 @@ function recentDealObservation(value: unknown, capturedAt: number) {
     .sort((a, b) => (b.timePoint ?? 0) - (a.timePoint ?? 0))[0] ?? null;
 }
 
+function booleanSignal(value: unknown) {
+  if (typeof value === "boolean") return value;
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    if (["true", "yes", "y", "1", "active"].includes(normalized)) return true;
+    if (["false", "no", "n", "0", "inactive"].includes(normalized)) return false;
+  }
+  if (typeof value === "number") {
+    if (value === 1) return true;
+    if (value === 0) return false;
+  }
+  return null;
+}
+
+function currentDealObservation(...sources: AnyRecord[]) {
+  const active = sources
+    .map((source) => booleanSignal(source.dealActive ?? source.isDeal ?? source.hasDeal ?? source.lightningDeal ?? source.bestDeal ?? source.currentDeal))
+    .find((value): value is boolean => typeof value === "boolean");
+  const explicitCurrentPrice = sources
+    .map((source) => finiteNumber(source.currentDealPrice) ?? finiteNumber(source.lightningDealPrice) ?? finiteNumber(source.bestDealPrice))
+    .find((value): value is number => typeof value === "number");
+  const activeScopedPrice = sources
+    .map((source) => explicitCurrentPrice ?? finiteNumber(source.dealPrice))
+    .find((value): value is number => typeof value === "number");
+  const dealType = sources
+    .map((source) => source.dealType ?? source.dealKind ?? source.promotionType)
+    .find((value): value is string => typeof value === "string" && value.trim().length > 0) ?? null;
+
+  if (active === false) return { active: false, price: null, type: dealType };
+  if (active === true) return { active: true, price: activeScopedPrice ?? null, type: dealType };
+  if (explicitCurrentPrice !== undefined) return { active: true, price: explicitCurrentPrice, type: dealType };
+  return { active: null, price: null, type: dealType };
+}
+
 function couponHistory(value: unknown): PromotionHistoryPoint[] {
   if (!Array.isArray(value)) return [];
   return (value as CouponTrend[])
@@ -241,6 +275,57 @@ function mergePromotionHistory(couponTrends: unknown, dealPrices: unknown, prime
       return true;
     })
     .slice(0, 120);
+}
+
+function statusRank(status: CoverageStatus) {
+  if (status === "ok") return 1;
+  if (status === "partial") return 0.55;
+  return 0;
+}
+
+function buildDataCoverage(input: {
+  detailPrice: number | null;
+  effectivePrice: number | null;
+  couponActive: boolean | null;
+  couponFinalPrice: number | null;
+  pdActive: boolean | null;
+  pdPrice: number | null;
+  dealActive: boolean | null;
+  dealHistoryCount: number;
+  monthlyUnits: number | null;
+  monthlyRevenue: number | null;
+  freeShare: number | null;
+  paidShare: number | null;
+  trafficCoverage: number | null;
+  coreKeywordCount: number;
+  listingTitle: string;
+  imageCount: number;
+  bulletCount: number;
+  mediaAvailable: boolean;
+}) {
+  const pricing: CoverageStatus = input.effectivePrice !== null ? "ok" : input.detailPrice !== null ? "partial" : "missing";
+  const sales: CoverageStatus = input.monthlyUnits !== null || input.monthlyRevenue !== null ? "ok" : "missing";
+  const promotion: CoverageStatus = input.couponActive !== null || input.pdActive !== null || input.dealActive !== null
+    ? input.dealActive === null && input.dealHistoryCount > 0 ? "partial" : "ok"
+    : input.dealHistoryCount > 0 || input.pdPrice !== null ? "partial" : "missing";
+  const traffic: CoverageStatus = input.freeShare !== null && input.paidShare !== null
+    ? input.trafficCoverage !== null && input.trafficCoverage < 70 ? "partial" : "ok"
+    : input.coreKeywordCount > 0 ? "partial" : "missing";
+  const listing: CoverageStatus = input.listingTitle && input.imageCount > 0 && input.bulletCount > 0
+    ? "ok"
+    : input.listingTitle || input.imageCount > 0 ? "partial" : "missing";
+  const keywordPlacement: CoverageStatus = input.coreKeywordCount > 0 ? "ok" : "missing";
+  const score = Math.round(((statusRank(pricing) + statusRank(sales) + statusRank(promotion) + statusRank(traffic) + statusRank(listing) + statusRank(keywordPlacement)) / 6) * 100);
+  const notes = [
+    ...(pricing !== "ok" ? ["折后价缺少完整可比口径"] : []),
+    ...(sales !== "ok" ? ["销量估算未返回"] : []),
+    ...(promotion === "partial" ? ["促销存在历史或疑似信号，当前状态未完全确认"] : promotion === "missing" ? ["促销接口未返回可用状态"] : []),
+    ...(traffic !== "ok" ? ["流量结构覆盖不完整"] : []),
+    ...(listing !== "ok" ? ["Listing 图片或文案采集不完整"] : []),
+    ...(keywordPlacement !== "ok" ? ["核心关键词广告位未返回"] : []),
+    ...(!input.mediaAvailable ? ["Keepa 图片/Deal 扩展数据本次不可用"] : []),
+  ];
+  return { score, pricing, sales, promotion, traffic, listing, keywordPlacement, notes } satisfies DataCoverage;
 }
 
 function mergeHistorySeries(data: AnyRecord, couponTrends: unknown = []) {
@@ -404,13 +489,29 @@ export async function analyzeAsin(marketplace: string, asin: string): Promise<An
     const detailPrice = typeof detailAsin.price === "number" ? detailAsin.price : null;
     const lookupPrice = typeof seed.price === "number" ? seed.price : null;
     const pricing = effectivePrice(detailPrice ?? lookupPrice, detailAsin.coupon);
-    const pdPrice = typeof detailAsin.primePrice === "number" && detailAsin.primePrice > 0 ? detailAsin.primePrice : null;
-    const pdActive = typeof detailAsin.primePrice === "number" ? pdPrice !== null : null;
-    const dealObservation = recentDealObservation(media.dealPrice, mediaEnd);
-    const dealPrice = dealObservation?.value ?? null;
-    const dealActive = Array.isArray(media.dealPrice) ? dealPrice !== null : null;
-    const currentEffectivePrice = dealActive && dealPrice !== null ? dealPrice : pricing.value;
-    const priceNote = dealActive && dealPrice !== null ? "当前检测到 Amazon Deal 价格；未叠加 Coupon" : pricing.note;
+    const basePrice = detailPrice ?? lookupPrice;
+    const pdPrice = typeof detailAsin.primePrice === "number" && Number.isFinite(detailAsin.primePrice) && detailAsin.primePrice > 0 ? detailAsin.primePrice : null;
+    const pdActive = typeof detailAsin.primePrice === "number"
+      ? pdPrice !== null && basePrice !== null
+        ? pdPrice < basePrice
+        : pdPrice !== null
+          ? null
+          : false
+      : null;
+    const dealHistorySignal = recentDealObservation(media.dealPrice, mediaEnd);
+    const dealObservation = currentDealObservation(detailAsin, seed, media);
+    const dealPrice = dealObservation.price;
+    const dealActive = dealObservation.active;
+    const currentPromotionPrices = [
+      dealActive && dealPrice !== null ? { label: "Amazon Deal", value: dealPrice } : null,
+      pricing.couponFinalPrice !== null ? { label: "Coupon", value: pricing.couponFinalPrice } : null,
+      pdActive && pdPrice !== null ? { label: "PD", value: pdPrice } : null,
+    ].filter((item): item is { label: string; value: number } => item !== null);
+    const strongestPromotionPrice = currentPromotionPrices.sort((a, b) => a.value - b.value)[0] ?? null;
+    const currentEffectivePrice = strongestPromotionPrice?.value ?? pricing.value;
+    const priceNote = strongestPromotionPrice
+      ? `${strongestPromotionPrice.label} 当前可验证价；未叠加其他优惠`
+      : pricing.note;
     const priceConflict = detailPrice !== null && lookupPrice !== null && Math.abs(detailPrice - lookupPrice) >= 0.5;
     const relations = Number(relationStat.relations ?? 0);
     const freeRelations = Number(relationStat.freeRelations ?? 0);
@@ -444,6 +545,7 @@ export async function analyzeAsin(marketplace: string, asin: string): Promise<An
     }
     if (dealActive && dealPrice !== null) conclusions.unshift({ severity: "high", title: "当前检测到 Amazon Deal", body: `Deal 价格为 ${dealPrice} ${CURRENCIES[marketplace] ?? "USD"}；需结合结束后的销量、BSR 与流量判断促销增量。` });
     else if (pdActive && pdPrice !== null) conclusions.unshift({ severity: "info", title: "当前存在 PD", body: `Prime 专享价为 ${pdPrice}；已与 Coupon、Amazon Deal 分开记录。` });
+    else if (pdActive === null && pdPrice !== null) conclusions.unshift({ severity: "info", title: "存在 PD 价格信号", body: `primePrice 返回 ${pdPrice}，但缺少可比页面售价，暂不判断为当前 PD。` });
     else if (pricing.couponActive) conclusions.unshift({ severity: "info", title: "当前存在 Coupon", body: pricing.couponFinalPrice !== null ? `Coupon 后价格为 ${pricing.couponFinalPrice}。` : "Coupon 无法可靠换算，已保留原始优惠说明。" });
     const trend = (sales?.salesTrendPoints ?? []).filter((point: AnyRecord) => point.month !== new Date().toISOString().slice(0, 7));
     if (trend.length >= 2) {
@@ -456,7 +558,29 @@ export async function analyzeAsin(marketplace: string, asin: string): Promise<An
     }
     if (!conclusions.length) conclusions.push({ severity: "info", title: "已建立首份基线", body: "本次没有历史快照，需等下一次同口径采集后才能生成变化告警。" });
 
-    const dataNotes = ["月销量、销量增长率和销售额为 SellerSprite 估算值，不是 Amazon 后台实际订单。", `Coupon 来自 coupon/couponTrends；PD 仅在 primePrice 明确大于 0 时标记；Amazon Deal 来自近 36 小时 Keepa dealPrice。三种促销独立记录，历史活动不视为当前活动。当前共返回 ${promotionHistory.length} 条促销记录。`, "整体免费/付费来源占比按 traffic_listing_stat 的关联来源数量计算；关键词广告贡献按 trafficPercentage × adRatio 加权，两者分母不同，不能互相替代。SP、SBV、SB 按关键词 badges 区分。"];
+    const dataCoverage = buildDataCoverage({
+      detailPrice,
+      effectivePrice: currentEffectivePrice,
+      couponActive: pricing.couponActive,
+      couponFinalPrice: pricing.couponFinalPrice,
+      pdActive,
+      pdPrice,
+      dealActive,
+      dealHistoryCount: promotionHistory.filter((item) => item.kind === "deal").length,
+      monthlyUnits: seed.units ?? null,
+      monthlyRevenue: seed.revenue ?? null,
+      freeShare,
+      paidShare,
+      trafficCoverage: trafficMix.trafficCoverage,
+      coreKeywordCount: trafficMix.coreKeywords.length,
+      listingTitle,
+      imageCount: listingImages.length,
+      bulletCount: listingBullets.length,
+      mediaAvailable: Object.keys(media).length > 0,
+    });
+    const dataNotes = ["月销量、销量增长率和销售额为 SellerSprite 估算值，不是 Amazon 后台实际订单。", `Coupon 来自 coupon/couponTrends；PD 仅在 primePrice 低于可比页面售价时标记为当前 PD；Amazon Deal 只使用明确当前 Deal 字段判断，Keepa dealPrice 仅进入历史时间线。三种促销独立记录，历史活动不视为当前活动。当前共返回 ${promotionHistory.length} 条促销记录。`, "整体免费/付费来源占比按 traffic_listing_stat 的关联来源数量计算；关键词广告贡献按 trafficPercentage × adRatio 加权，两者分母不同，不能互相替代。SP、SBV、SB 按关键词 badges 区分。"];
+    if (dealActive === null && dealHistorySignal) dataNotes.push(`Keepa 近 36 小时存在 Deal 价格信号 ${dealHistorySignal.value}，但没有明确当前 Deal 字段，因此不标记为当前 Deal。`);
+    dataNotes.push(...dataCoverage.notes);
     dataNotes.push(Object.keys(media).length
       ? "Listing 标题、五点和属性来自详情接口，图片组来自 Keepa；按每日快照和上一自然日比较。"
       : "Listing 标题、五点和属性已留存；本次 Keepa 图片组不可用，仅保存详情主图。");
@@ -504,9 +628,9 @@ export async function analyzeAsin(marketplace: string, asin: string): Promise<An
         pdAudience: pdActive ? "prime" : null,
         primePrice: pdPrice,
         dealActive,
-        dealType: null,
+        dealType: dealObservation.type,
         dealPrice,
-        dealStartAt: typeof dealObservation?.timePoint === "number" ? new Date(dealObservation.timePoint).toISOString() : null,
+        dealStartAt: dealActive && dealHistorySignal?.timePoint ? new Date(dealHistorySignal.timePoint).toISOString() : null,
         dealEndAt: null,
       },
       promotionChanges: {
@@ -536,6 +660,7 @@ export async function analyzeAsin(marketplace: string, asin: string): Promise<An
         "明天按同一接口复查销量、PD、Coupon、Amazon Deal、折后价、BSR、评分和核心流量，形成首个日环比。",
       ],
       dataNotes,
+      dataCoverage,
       listing: {
         title: listingTitle,
         bullets: listingBullets,

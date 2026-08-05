@@ -42,3 +42,31 @@ export async function consumeDailyQuota(
     .returning({ value: monitorUsage.historyQueries });
   return rows.length > 0;
 }
+
+export async function refundDailyQuota(
+  userId: string,
+  kind: "analyze" | "history",
+  amount = 1,
+) {
+  if (amount <= 0) return;
+  const usageDate = new Date().toISOString().slice(0, 10);
+  const id = `${userId}:${usageDate}`;
+  const db = getDb();
+
+  if (kind === "analyze") {
+    await db.update(monitorUsage)
+      .set({
+        analyzeUnits: sql`CASE WHEN ${monitorUsage.analyzeUnits} < ${amount} THEN 0 ELSE ${monitorUsage.analyzeUnits} - ${amount} END`,
+        updatedAt: Date.now(),
+      })
+      .where(eq(monitorUsage.id, id));
+    return;
+  }
+
+  await db.update(monitorUsage)
+    .set({
+      historyQueries: sql`CASE WHEN ${monitorUsage.historyQueries} < ${amount} THEN 0 ELSE ${monitorUsage.historyQueries} - ${amount} END`,
+      updatedAt: Date.now(),
+    })
+    .where(eq(monitorUsage.id, id));
+}

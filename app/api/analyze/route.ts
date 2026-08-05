@@ -5,13 +5,36 @@ import { analyzeAsin } from "../../../lib/sellersprite";
 import type { AnalysisResult, MonitorFailure } from "../../../lib/demo-data";
 import { decorateWithHistory, hydrateResult } from "../../../lib/history";
 import { AUTO_SYNC_SCHEDULE, AUTO_SYNC_TIMEZONE, deleteMonitorTarget, failureFrom, listTargetStates, markFailedTargets, persistSuccessfulTargets, setTargetAutoSync } from "../../../lib/monitor-targets";
-import { consumeDailyQuota, DAILY_ANALYZE_LIMIT } from "../../../lib/usage";
+import { consumeDailyQuota, DAILY_ANALYZE_LIMIT, refundDailyQuota } from "../../../lib/usage";
 import { friendlyError } from "../../../lib/user-errors";
 import { getVisitorSession, visitorJson } from "../../../lib/visitor-session";
 
 const MARKETPLACES = new Set(["US", "JP", "UK", "DE", "FR", "IT", "ES", "CA", "IN", "MX", "BR", "AU", "AE"]);
 
 const automation = { schedule: AUTO_SYNC_SCHEDULE, timezone: AUTO_SYNC_TIMEZONE };
+const ANALYZE_CONCURRENCY = 3;
+
+async function settleWithConcurrency<T, R>(
+  items: T[],
+  concurrency: number,
+  worker: (item: T) => Promise<R>,
+): Promise<Array<PromiseSettledResult<R>>> {
+  const results: Array<PromiseSettledResult<R>> = new Array(items.length);
+  let nextIndex = 0;
+  async function run() {
+    while (nextIndex < items.length) {
+      const index = nextIndex;
+      nextIndex += 1;
+      try {
+        results[index] = { status: "fulfilled", value: await worker(items[index]) };
+      } catch (reason) {
+        results[index] = { status: "rejected", reason };
+      }
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(concurrency, items.length) }, run));
+  return results;
+}
 
 async function getTargetHistory(userId: string, marketplace: string, asin: string) {
   try {
@@ -63,9 +86,10 @@ export async function POST(request: Request) {
     const withinQuota = await consumeDailyQuota(visitor.userId, "analyze", targets.length);
     if (!withinQuota) return visitorJson(visitor, { error: `当前匿名空间每天最多同步 ${DAILY_ANALYZE_LIMIT} 个 ASIN，请明天再试` }, { status: 429 });
 
-    const settled = await Promise.allSettled(targets.map((target) => analyzeAsin(target.marketplace, target.asin)));
+    const settled = await settleWithConcurrency(targets, ANALYZE_CONCURRENCY, (target) => analyzeAsin(target.marketplace, target.asin));
     const results = settled.filter((item): item is PromiseFulfilledResult<AnalysisResult> => item.status === "fulfilled").map((item) => item.value);
     const failures: MonitorFailure[] = settled.flatMap((item, index) => item.status === "rejected" ? [failureFrom(targets[index], item.reason)] : []);
+    if (failures.length) await refundDailyQuota(visitor.userId, "analyze", failures.length);
     if (!results.length) {
       return visitorJson(visitor, { error: failures[0]?.error || "所有 ASIN 分析均失败", failures }, { status: 503 });
     }

@@ -1,4 +1,4 @@
-import type { AnalysisResult, CoreKeywordSnapshot, HistoryPoint, KeywordPlacementChange, ListingChange, ListingSnapshot, MetricChange, PromotionChange, PromotionSnapshot, Severity } from "./demo-data";
+import type { AnalysisResult, CoreKeywordSnapshot, CoverageStatus, DataCoverage, HistoryPoint, KeywordPlacementChange, ListingChange, ListingSnapshot, MetricChange, PromotionChange, PromotionSnapshot, Severity } from "./demo-data";
 
 function emptyChange(current: number | null): MetricChange {
   return { current, previous: null, absolute: null, percent: null, direction: "new", favorable: null };
@@ -20,6 +20,39 @@ function baselineListingChange(): ListingChange {
 
 function baselinePromotionChange(): PromotionChange {
   return { baseline: true, changed: false, summaries: ["已建立促销基线"] };
+}
+
+function coverageStatus(ok: boolean, partial: boolean): CoverageStatus {
+  if (ok) return "ok";
+  if (partial) return "partial";
+  return "missing";
+}
+
+function hydrateCoverage(input: Partial<AnalysisResult>, result: Partial<AnalysisResult>): DataCoverage {
+  if (input.dataCoverage) return input.dataCoverage;
+  const metrics = result.metrics ?? input.metrics;
+  const traffic = result.traffic ?? input.traffic;
+  const promotion = result.promotion ?? input.promotion;
+  const listing = result.listing ?? input.listing;
+  const pricing = coverageStatus(metrics?.effectivePrice !== null && metrics?.effectivePrice !== undefined, metrics?.price !== null && metrics?.price !== undefined);
+  const sales = coverageStatus(metrics?.monthlyUnits !== null && metrics?.monthlyUnits !== undefined || metrics?.monthlyRevenue !== null && metrics?.monthlyRevenue !== undefined, false);
+  const promotionStatus = coverageStatus(Boolean(promotion && (promotion.couponActive !== null || promotion.pdActive !== null || promotion.dealActive !== null)), Boolean((input.promotionHistory ?? []).length));
+  const trafficStatus = coverageStatus(traffic?.freeShare !== null && traffic?.freeShare !== undefined && traffic?.paidShare !== null && traffic?.paidShare !== undefined, Boolean(traffic?.coreKeywords?.length));
+  const imageCount = listing?.imageUrls?.length ?? 0;
+  const bulletCount = listing?.bullets?.length ?? 0;
+  const listingStatus = coverageStatus(Boolean(listing?.title && imageCount && bulletCount), Boolean(listing?.title || imageCount));
+  const keywordPlacement = coverageStatus(Boolean(traffic?.coreKeywords?.length), false);
+  const rank = (status: CoverageStatus) => status === "ok" ? 1 : status === "partial" ? 0.55 : 0;
+  const score = Math.round(((rank(pricing) + rank(sales) + rank(promotionStatus) + rank(trafficStatus) + rank(listingStatus) + rank(keywordPlacement)) / 6) * 100);
+  const notes = [
+    ...(pricing !== "ok" ? ["历史快照折后价口径不完整"] : []),
+    ...(sales !== "ok" ? ["历史快照销量估算缺失"] : []),
+    ...(promotionStatus !== "ok" ? ["历史快照促销覆盖不完整"] : []),
+    ...(trafficStatus !== "ok" ? ["历史快照流量覆盖不完整"] : []),
+    ...(listingStatus !== "ok" ? ["历史快照 Listing 覆盖不完整"] : []),
+    ...(keywordPlacement !== "ok" ? ["历史快照关键词广告位缺失"] : []),
+  ];
+  return { score, pricing, sales, promotion: promotionStatus, traffic: trafficStatus, listing: listingStatus, keywordPlacement, notes };
 }
 
 function normalizeText(value: string | null | undefined) {
@@ -118,7 +151,7 @@ export function hydrateResult(input: Partial<AnalysisResult>): AnalysisResult {
   const effectivePrice = metrics.effectivePrice ?? metrics.price ?? null;
   const legacyPdPrice = typeof input.promotion?.primePrice === "number" && input.promotion.primePrice > 0 ? input.promotion.primePrice : null;
   const result = input as AnalysisResult;
-  return {
+  const hydrated = {
     ...result,
     sourceVersion: input.sourceVersion ?? 1,
     salesVersion: input.salesVersion ?? 0,
@@ -140,7 +173,7 @@ export function hydrateResult(input: Partial<AnalysisResult>): AnalysisResult {
     salesMeta: input.salesMeta ?? { source: "legacy", estimate: true, period: null },
     promotion: input.promotion ? {
       ...input.promotion,
-      pdActive: input.promotion.pdActive ?? (legacyPdPrice !== null ? true : null),
+      pdActive: input.promotion.pdActive ?? null,
       pdPrice: input.promotion.pdPrice ?? legacyPdPrice,
       pdAudience: input.promotion.pdAudience ?? (legacyPdPrice !== null ? "prime" : null),
     } : {
@@ -209,6 +242,10 @@ export function hydrateResult(input: Partial<AnalysisResult>): AnalysisResult {
       dealPrice: emptyChange(input.promotion?.dealPrice ?? null),
     },
     comparisonCapturedAt: null,
+  };
+  return {
+    ...hydrated,
+    dataCoverage: hydrateCoverage(input, hydrated),
   };
 }
 

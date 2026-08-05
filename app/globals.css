@@ -109,7 +109,7 @@ button, a { -webkit-tap-highlight-color: transparent; }
 .watch-toolbar input:focus, .watch-toolbar select:focus { border-color: var(--primary); box-shadow: 0 0 0 2px rgba(37, 99, 235, .1); }
 .table-scroll { overflow-x: auto; }
 table { border-collapse: collapse; }
-.watch-table { width: 100%; min-width: 1240px; }
+.watch-table { width: 100%; min-width: 1380px; }
 .watch-table th { height: 38px; padding: 8px 10px; background: var(--surface-soft); border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); color: var(--muted); font-size: 11px; font-weight: 650; text-align: left; }
 .watch-table td { height: 62px; padding: 10px; border-bottom: 1px solid #eef0f2; font-size: 12px; cursor: pointer; }
 .watch-table tbody tr:focus-visible { outline: 2px solid var(--primary); outline-offset: -2px; }
@@ -133,10 +133,11 @@ table { border-collapse: collapse; }
 .risk-badge.medium { background: var(--orange-soft); color: var(--orange); }
 .risk-badge.low { background: var(--green-soft); color: var(--green); }
 .risk-badge.baseline { background: var(--primary-soft); color: var(--primary-dark); }
+.risk-badge.data { background: #eef2ff; color: #4338ca; }
 .risk-cell > small { margin-top: 4px; }
 .tag-row { display: flex; flex-wrap: wrap; gap: 3px; max-width: 128px; margin-top: 4px; }
 .tag-row span, .issue-tags span { display: inline-flex; align-items: center; min-height: 18px; padding: 2px 5px; border-radius: 4px; background: #f3f4f6; color: #4b5563; font-size: 9px; font-weight: 650; white-space: nowrap; }
-.promotion-badge { display: inline-flex; align-items: center; min-height: 20px; padding: 3px 7px; border-radius: 5px; background: #f3f4f6; color: var(--muted); font-size: 8px; font-weight: 700; white-space: nowrap; }
+.promotion-badge { display: inline-flex; align-items: center; min-height: 20px; padding: 3px 7px; border-radius: 5px; background: #f3f4f6; color: var(--muted); font-size: 10px; font-weight: 700; white-space: nowrap; }
 .promotion-badge.deal { background: #fef2f2; color: #b42318; }
 .promotion-badge.pd { background: #ecfdf3; color: #027a48; }
 .promotion-badge.coupon { background: var(--orange-soft); color: var(--orange); }
@@ -237,12 +238,12 @@ table { border-collapse: collapse; }
 .keyword-table th { padding: 7px 8px; border-bottom: 1px solid var(--border); color: var(--muted); font-size: 10px; font-weight: 600; text-align: left; white-space: nowrap; }
 .keyword-table td { padding: 7px 8px; border-bottom: 1px solid #edf0f4; vertical-align: middle; }
 .keyword-table td > strong, .keyword-table td > small { display: block; }
-.keyword-table td > small { margin-top: 2px; color: var(--muted); font-size: 8px; }
-.rank-delta { display: inline-flex; margin-top: 3px; padding: 2px 4px; border-radius: 4px; font-size: 7px; white-space: nowrap; }
+.keyword-table td > small { margin-top: 2px; color: var(--muted); font-size: 10px; }
+.rank-delta { display: inline-flex; margin-top: 3px; padding: 2px 4px; border-radius: 4px; font-size: 9px; white-space: nowrap; }
 .rank-delta.up { background: var(--green-soft); color: var(--green); }
 .rank-delta.down { background: var(--red-soft); color: var(--red); }
 .rank-delta.quiet { background: #f3f4f6; color: var(--muted); }
-.ad-type { display: inline-flex; min-width: 34px; justify-content: center; padding: 3px 5px; border-radius: 4px; font-size: 7px; font-weight: 700; }
+.ad-type { display: inline-flex; min-width: 34px; justify-content: center; padding: 3px 5px; border-radius: 4px; font-size: 9px; font-weight: 700; }
 .ad-type.sp { background: #fff7ed; color: #c2410c; }
 .ad-type.sbv { background: #f5f3ff; color: #6d28d9; }
 .ad-type.sb { background: #ecfeff; color: #0e7490; }
@@ -302,6 +303,24 @@ table { border-collapse: collapse; }
 .event-chip.deal { border-color: #fecaca; background: var(--red-soft); }
 .event-chip.pd { border-color: #bbf7d0; background: var(--green-soft); }
 .event-chip.info, .event-chip.baseline { border-color: #bfdbfe; background: var(--primary-soft); }
+.coverage-panel { display: grid; grid-template-columns: 110px minmax(0, 1fr); gap: 10px 14px; align-items: center; padding: 12px 16px; border-bottom: 1px solid var(--border); background: #fbfcff; }
+.coverage-panel p { grid-column: 2; margin: -2px 0 0; color: var(--muted); font-size: 10px; line-height: 1.5; }
+.coverage-score span, .coverage-score strong { display: block; }
+.coverage-score span { color: var(--muted); font-size: 10px; }
+.coverage-score strong { margin-top: 3px; font-size: 18px; font-weight: 700; }
+.coverage-badges { display: flex; flex-wrap: wrap; gap: 5px; min-width: 0; }
+.coverage-badge { display: inline-flex; align-items: center; gap: 5px; min-height: 22px; padding: 3px 7px; border-radius: 999px; background: #f3f4f6; color: var(--muted); font-size: 10px; font-weight: 650; white-space: nowrap; }
+.coverage-badge strong { color: #374151; font-size: 10px; }
+.coverage-badge.ok { background: var(--green-soft); color: var(--green); }
+.coverage-badge.partial { background: var(--orange-soft); color: var(--orange); }
+.coverage-badge.missing { background: var(--red-soft); color: var(--red); }
+.coverage-mini { display: grid; gap: 5px; min-width: 150px; }
+.coverage-mini .coverage-score { display: flex; align-items: baseline; gap: 6px; }
+.coverage-mini .coverage-score span { font-size: 9px; }
+.coverage-mini .coverage-score strong { margin: 0; font-size: 12px; }
+.coverage-mini .coverage-badges { gap: 3px; }
+.coverage-mini .coverage-badge { min-height: 18px; padding: 2px 5px; font-size: 8px; }
+.coverage-mini .coverage-badge strong { display: none; }
 .insight-list { display: grid; gap: 6px; margin-top: 11px; }
 .insight { display: grid; grid-template-columns: 32px 1fr; gap: 8px; padding: 8px; border: 1px solid var(--border); border-radius: 6px; background: white; }
 .insight.high { border-color: #fecaca; background: var(--red-soft); }
@@ -395,6 +414,8 @@ table { border-collapse: collapse; }
   .history-product { align-items: flex-start; flex-direction: column; }
   .history-product-info h2 { white-space: normal; }
   .listing-current { grid-template-columns: 1fr; }
+  .coverage-panel { grid-template-columns: 1fr; }
+  .coverage-panel p { grid-column: 1; }
   .promotion-grid { grid-template-columns: 1fr; }
   .traffic-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .promotion-history-row { grid-template-columns: 44px auto auto; }

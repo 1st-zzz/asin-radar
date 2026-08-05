@@ -84,6 +84,19 @@ export type PromotionHistoryPoint = {
   discountPercent: number | null;
 };
 
+export type CoverageStatus = "ok" | "partial" | "missing";
+
+export type DataCoverage = {
+  score: number;
+  pricing: CoverageStatus;
+  sales: CoverageStatus;
+  promotion: CoverageStatus;
+  traffic: CoverageStatus;
+  listing: CoverageStatus;
+  keywordPlacement: CoverageStatus;
+  notes: string[];
+};
+
 export type ListingSnapshot = {
   title: string;
   bullets: string[];
@@ -169,6 +182,7 @@ export type AnalysisResult = {
   }>;
   actions: string[];
   dataNotes: string[];
+  dataCoverage: DataCoverage;
   listing: ListingSnapshot;
   listingChanges: ListingChange;
   history: HistoryPoint[];
@@ -350,6 +364,16 @@ export const demoResult: AnalysisResult = {
     "卖家精灵详情、批量对比和 Keepa 路径对当前价格及 BSR 的返回存在差异。",
     "月销量和销售额为卖家精灵估算值，不是 Amazon 后台实际订单。",
   ],
+  dataCoverage: {
+    score: 83,
+    pricing: "ok",
+    sales: "ok",
+    promotion: "partial",
+    traffic: "ok",
+    listing: "partial",
+    keywordPlacement: "ok",
+    notes: ["主图组暂未返回完整图片集", "Deal 只有历史信号，未确认当前活动"],
+  },
   listing: {
     title: "Titan Schneidebrett Set 3 Stück – S316 Edelstahl",
     bullets: ["Doppelseitiges Schneidebrett", "S316 Edelstahl und Titanbeschichtung"],
