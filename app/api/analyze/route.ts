@@ -6,6 +6,7 @@ import type { AnalysisResult, MonitorFailure } from "../../../lib/demo-data";
 import { decorateWithHistory, hydrateResult } from "../../../lib/history";
 import { AUTO_SYNC_SCHEDULE, AUTO_SYNC_TIMEZONE, deleteMonitorTarget, failureFrom, listTargetStates, markFailedTargets, persistSuccessfulTargets, setTargetAutoSync } from "../../../lib/monitor-targets";
 import { consumeDailyQuota, DAILY_ANALYZE_LIMIT } from "../../../lib/usage";
+import { friendlyError } from "../../../lib/user-errors";
 import { getVisitorSession, visitorJson } from "../../../lib/visitor-session";
 
 const MARKETPLACES = new Set(["US", "JP", "UK", "DE", "FR", "IT", "ES", "CA", "IN", "MX", "BR", "AU", "AE"]);
@@ -80,7 +81,7 @@ export async function POST(request: Request) {
     const targetStates = persisted ? await listTargetStates(visitor.userId) : [];
     return visitorJson(visitor, { results: decorated, targets: targetStates, persisted, failures, automation });
   } catch (error) {
-    return visitorJson(visitor, { error: error instanceof Error ? error.message : "分析请求失败" }, { status: 500 });
+    return visitorJson(visitor, { error: friendlyError(error, "分析请求失败") }, { status: 500 });
   }
 }
 

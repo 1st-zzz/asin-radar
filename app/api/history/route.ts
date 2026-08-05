@@ -5,6 +5,7 @@ import type { AnalysisResult } from "../../../lib/demo-data";
 import { decorateWithHistory, hydrateResult } from "../../../lib/history";
 import { queryAsinHistory } from "../../../lib/sellersprite";
 import { consumeDailyQuota, DAILY_HISTORY_LIMIT } from "../../../lib/usage";
+import { friendlyError } from "../../../lib/user-errors";
 import { getVisitorSession, visitorJson } from "../../../lib/visitor-session";
 
 const MARKETPLACES = new Set(["US", "JP", "UK", "DE", "FR", "IT", "ES", "CA", "IN", "MX", "BR", "AU", "AE"]);
@@ -46,6 +47,6 @@ export async function GET(request: Request) {
     ]);
     return visitorJson(visitor, { platform, retained });
   } catch (error) {
-    return visitorJson(visitor, { error: error instanceof Error ? error.message : "历史数据查询失败" }, { status: 503 });
+    return visitorJson(visitor, { error: friendlyError(error, "历史数据查询失败") }, { status: 503 });
   }
 }

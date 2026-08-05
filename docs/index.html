@@ -13,16 +13,32 @@
     .loading { position: fixed; inset: 0; z-index: -1; display: grid; place-items: center; color: #6b7280; font-size: 13px; }
     .loading span { display: grid; gap: 10px; justify-items: center; }
     .loading i { width: 28px; height: 28px; border: 3px solid #dbeafe; border-top-color: #2563eb; border-radius: 50%; animation: spin .8s linear infinite; }
+    .fallback { position: fixed; right: 18px; bottom: 18px; z-index: 2; display: none; max-width: 320px; padding: 12px 14px; border: 1px solid #dbe3ef; border-radius: 8px; background: rgba(255,255,255,.96); box-shadow: 0 10px 24px rgba(15,23,42,.12); color: #475467; font-size: 13px; line-height: 1.45; }
+    .fallback a { display: inline-flex; margin-top: 8px; color: #2563eb; font-weight: 700; text-decoration: none; }
+    body.show-fallback .fallback { display: block; }
     @keyframes spin { to { transform: rotate(360deg); } }
   </style>
 </head>
 <body>
   <div class="loading"><span><i></i>正在打开 ASIN Radar…</span></div>
   <iframe
+    id="app-frame"
     src="https://asin-radar-20260716.zzz3rdtop.chatgpt.site"
     title="ASIN Radar 竞品监控"
     referrerpolicy="strict-origin-when-cross-origin"
     allow="clipboard-read; clipboard-write"
   ></iframe>
+  <div class="fallback">
+    如果页面长时间没有显示，可能是当前网络或浏览器阻止了嵌入页面。
+    <a href="https://asin-radar-20260716.zzz3rdtop.chatgpt.site" target="_blank" rel="noreferrer">打开备用入口 ↗</a>
+  </div>
+  <script>
+    const frame = document.getElementById("app-frame");
+    const timer = window.setTimeout(() => document.body.classList.add("show-fallback"), 5000);
+    frame.addEventListener("load", () => {
+      window.clearTimeout(timer);
+      document.body.classList.remove("show-fallback");
+    });
+  </script>
 </body>
 </html>

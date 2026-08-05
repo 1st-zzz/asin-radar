@@ -2,12 +2,13 @@ import { and, desc, eq } from "drizzle-orm";
 import { getDb } from "../db";
 import { monitorRuns, monitorTargets } from "../db/schema";
 import type { AnalysisResult, MonitorFailure, MonitorTargetState } from "./demo-data";
+import { friendlyError } from "./user-errors";
 
 export const AUTO_SYNC_SCHEDULE = "每天 09:00";
 export const AUTO_SYNC_TIMEZONE = "Asia/Shanghai";
 
 function normalizeError(error: unknown) {
-  return (error instanceof Error ? error.message : String(error || "同步失败")).slice(0, 300);
+  return friendlyError(error, "同步失败").slice(0, 300);
 }
 
 function toTargetState(row: typeof monitorTargets.$inferSelect): MonitorTargetState {
